@@ -5,6 +5,64 @@
 
 ---
 
+## 0. Specifiche Funzionali della Piattaforma (KDP Publishing House)
+
+### Cos'è questa applicazione?
+Una fabbrica editoriale digitale per creare e vendere libri da colorare per adulti su Amazon KDP, categoria "Gag Gifts".
+
+### Flusso di Lavoro Completo
+
+#### Dashboard Principale
+- **Selezione Nicchia** (10 categorie): Office Burnout, Astrology, Nurses Healthcare, Teachers, Stressed Moms, Social Anxiety, True Crime, Coffee Lovers, Cat Moms, Gym Bros
+- **Gestione Progetti**: libri in lavorazione con stato (Bozza / In Corso / Completato)
+- **Statistiche**: nicchie disponibili, progetti attivi, compliance KDP
+
+#### Book Builder
+- **Front Matter**: QR Code page, "This Book Belongs To", "Test Your Colors"
+- **Illustrazioni**: soggetto dalla lista nicchia + frase satirica + generazione AI
+- **Pagina nera anti-sbavatura** dopo ogni illustrazione
+- **Griglia visuale** di tutte le pagine con anteprima e delete
+- **Barra progresso** (obiettivo: 30 illustrazioni)
+- **Export PDF** KDP-ready (8.5"×11", 300 DPI, B&N puro)
+
+#### Studio Mode (Controllo Avanzato)
+- Descrizione scena libera
+- Frase satirica
+- Stile integrazione testo: Banner, Cartello, Schermo, Fumetto, Tazza, T-Shirt, Poster, Pergamena, Lettering decorativo
+- Elementi riempitivi (oggetti extra nella scena)
+- Slider threshold B/W
+- Quality Control: % pixel bianchi, rilevamento grigi, compliance KDP
+
+#### Marketing Funnel
+- **Keyword Extractor**: Amazon autosuggest → long-tail keywords per USA/UK/DE/IT/PL
+- **Landing Page Generator**: bundle HTML (index, thank-you, privacy, cookie banner) GDPR-compliant
+- **QR URL Config**: URL destinazione + parametri UTM automatici
+- **Email Automation**: stub Brevo/MailerLite (in sviluppo)
+
+### Struttura Standard Libro (65 pagine totali)
+1. Pagina QR Code (cattura lead)
+2. "This Book Belongs To"
+3. "Test Your Colors"
+4–65: 30 illustrazioni × (illustrazione + pagina nera) = 60 pagine
+
+### Stato Funzionalità
+
+| Funzionalità | Stato |
+|---|---|
+| Dashboard Nicchie | ✅ Implementato |
+| Book Builder | ✅ Implementato |
+| Front Matter (QR, Belongs To, Test Colors) | ✅ Implementato |
+| Generazione Illustrazioni AI | ✅ Implementato (nuovo prompt) |
+| Studio Mode | ✅ Implementato |
+| Processing B/W 100% | ✅ Implementato |
+| Export PDF | ✅ Implementato |
+| Keyword Extractor Amazon | ✅ Implementato |
+| Landing Page Generator | ✅ Implementato |
+| Email Automation | ⏳ Stub (Brevo da integrare) |
+| Web App (Streamlit) | ✅ Implementato |
+
+---
+
 ## 1. Analisi di Mercato: I Numeri Reali
 
 I libri da colorare rientrano nel **Medium Content**. Barriere all'ingresso basse → mercato iper-saturo. Per vincere non serve il "libro perfetto" (*Non perfezione → Intraprendenza*), serve la **distribuzione perfetta** e la comprensione della **Lifetime Value (LTV)** del cliente.

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zodiaco Esaurito — Bonus Esclusivo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="card">
+  <h1>🎁 Bonus Esclusivo</h1>
+  <p class="subtitle">
+    Hai comprato il libro.<br>
+    Ora sblocca il regalo riservato ai lettori.
+  </p>
+
+  <div class="benefit">10 illustrazioni extra esclusive da stampare a casa</div>
+  <div class="benefit">Il test: "Che tipo di Esaurito sei?"</div>
+  <div class="benefit">Accesso anticipato ai nuovi volumi della serie</div>
+
+  <form id="form" onsubmit="handleSubmit(event)">
+    <input type="email" id="email" placeholder="La tua email" required autocomplete="email">
+    <button type="submit">Voglio il mio bonus gratuito →</button>
+    <p class="gdpr">
+      Confermo di aver letto la <a href="privacy.html">Privacy Policy</a>.
+      Niente spam — puoi cancellarti in qualsiasi momento.
+    </p>
+  </form>
+</div>
+
+<footer>
+  © The Daily Burnout Press —
+  <a href="privacy.html">Privacy Policy</a>
+</footer>
+
+<div class="cookie-banner" id="cookie-banner">
+  <span>Usiamo solo cookie tecnici necessari al funzionamento del sito.</span>
+  <button onclick="acceptCookies()">Ok, capito</button>
+</div>
+
+<script>
+  // ── Cookie banner ──────────────────────────────────────────────────────────
+  if (localStorage.getItem('cookies_ok')) {
+    document.getElementById('cookie-banner').style.display = 'none';
+  }
+  function acceptCookies() {
+    localStorage.setItem('cookies_ok', '1');
+    document.getElementById('cookie-banner').style.display = 'none';
+  }
+
+  // ── Form submit ────────────────────────────────────────────────────────────
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = 'Attendere…';
+
+    try {
+      await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source: 'kdp_book_qr' }),
+      });
+    } catch (err) {
+      console.warn('Subscribe error:', err);
+    }
+
+    window.location.href = 'thank-you.html?email=' + encodeURIComponent(email);
+  }
+</script>
+
+</body>
+</html>
