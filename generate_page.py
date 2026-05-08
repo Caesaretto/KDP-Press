@@ -10,6 +10,9 @@ Usage:
     # Test post-processing su immagine esistente (senza chiamare l'API):
     python generate_page.py leone "frase test" it --skip-generate output/leone_raw.png
 
+    # Stampa il prompt senza generare:
+    python generate_page.py pesci "test" it --print-prompt
+
 Requirements:
     pip install openai pillow
     export OPENAI_API_KEY=sk-...
@@ -25,12 +28,14 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
 
+from zodiac_config import ZODIAC_CONFIG, _ALIASES
+
 # ── KDP: 8.5" × 11" @ 300 DPI ────────────────────────────────────────────────
-KDP_W, KDP_H   = 2550, 3300
-TEXT_RATIO      = 0.30    # bottom fraction of image reserved for text
-BORDER_RATIO    = 0.08    # decorative border width as fraction of image width
-BINARIZE_THR    = 160
-OUTPUT_DPI      = 300
+KDP_W, KDP_H    = 2550, 3300
+TEXT_RATIO       = 0.30    # bottom fraction reserved for text zone
+BORDER_RATIO     = 0.08    # decorative border width as fraction of image width
+BINARIZE_THR     = 160
+OUTPUT_DPI       = 300
 
 # ── Font candidates — Fredoka One first for kawaii look ──────────────────────
 _SCRIPT_DIR = Path(__file__).parent
@@ -47,137 +52,46 @@ FONT_CANDIDATES = [
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MASTER PROMPT TEMPLATE
-# Parametri: {segno}, {soggetto_kawaii}, {elementi_tematici}, {simbolo_bordo}
+# Parameters: {simbolo_angolo}, {simbolo_lato}, {soggetto_kawaii}
 # ══════════════════════════════════════════════════════════════════════════════
 
 MASTER_PROMPT_TEMPLATE = """\
-RENDERING STYLE — apply to the entire image without exception:
-Black ink outlines on pure white paper. The background and all empty areas are \
-bright white (paper white). Black is used only for outline strokes. \
-No gray fills, no shading, no gradients, no shadows anywhere. \
-This must look exactly like a coloring book page ready to be colored by a child — \
-flat white areas bounded by clean black outlines, nothing else.
+Black and white kawaii coloring book illustration page. Pure black outlines on \
+pure white background. Zero gray shading, zero gradients, zero textures. \
+Bold uniform linework throughout.
 
-Black and white kawaii coloring book page for zodiac sign {segno}.
+PAGE LAYOUT (critical - follow exactly):
+The page is divided into two sections, both INSIDE the decorative border:
+- TOP 70%: kawaii illustration area with clean white background
+- BOTTOM 30%: completely empty white rectangle, no illustrations, no text, \
+no decorations whatsoever
 
-PAGE LAYOUT — replicate this structure exactly:
-The full image is enclosed by a single ornate DECORATIVE BORDER that runs along \
-all four edges of the image (top, bottom, left, right), like a tarot card picture frame. \
-Inside the border, the content area is divided into two zones stacked vertically:
-  — TOP 70%: kawaii illustration (see below)
-  — BOTTOM 30%: blank white rectangle for text (see below)
+DECORATIVE BORDER (critical - must surround the ENTIRE page including the \
+bottom white area):
+- Outer thick black line forming a complete rectangle around the full page
+- Inner thin black line parallel to outer line, with decorative space between them
+- Four corners: large {simbolo_angolo} filling each corner space
+- All four sides (top, bottom, left, right): {simbolo_lato} repeated at regular \
+intervals along the entire side, connected by a thin ornamental line
+- Border width: approximately 8% of page width on each side
+- Style: kawaii tarot card border, ornate but clean
 
-SECTION 1 — DECORATIVE BORDER (all four sides, entire image perimeter):
-  • Structure: double rectangular outline — a thick outer line and a thinner inner line, \
-with a clear white gap between them on all four sides.
-  • Corners: at each of the four corners, inside the gap, place a large {simbolo_bordo} \
-ornament — prominent, detailed, completely filling the corner space.
-  • Sides: between the two frame lines, the same {simbolo_bordo} motif repeats at \
-regular intervals along ALL four sides (top, bottom, left, right), connected by a \
-continuous thin ornamental vine or rope line that runs the full length of each side.
-  • Border band width: approximately 8% of the total image width on each side.
-  • Style: rich and decorative, like an ornate kawaii picture frame in a children's \
-illustration book. Not minimalist. Not a simple single line. Dense with detail.
+MAIN ILLUSTRATION (inside the top 70% of the border):
+- Subject: {soggetto_kawaii}
+- Style: chibi kawaii, big cute round eyes, simple happy expression, rounded shapes
+- Size: fills approximately 80% of the illustration area
+- Background: pure white with maximum 4 small decorative elements scattered \
+(4-pointed stars, tiny hearts, small circles/bubbles)
+- NO patterns, NO dense backgrounds, NO competing elements
 
-SECTION 2 — ILLUSTRATION ZONE (top 70% of interior, inside the border):
-  • Main subject: {soggetto_kawaii}.
-  • The subject is centered, drawn large, with thick clean outlines, \
-big round sparkly eyes, rosy dot cheeks, kawaii proportions.
-  • Background: almost empty white. Scatter only 3–4 tiny isolated elements \
-({elementi_tematici}) with plenty of clean white space around them. \
-No dense patterns, no background fills.
-
-SECTION 3 — TEXT ZONE (bottom 30% of interior, inside the border):
-  • Completely blank solid white rectangle. No drawings, no decorations, no lines.
-  • A single thin horizontal rule separates this zone from the illustration above it.
-  • The decorative border continues on the left, right, and bottom edges of this zone \
-(it surrounds the entire page).
-
-GLOBAL STYLE — critical, follow exactly:
-  • This is a LINE DRAWING on white paper. The paper/background must be pure white \
-(255,255,255) everywhere — do not fill any area with gray, black, or any shade.
-  • Only the outline strokes themselves are black. Everything else is white.
-  • No gray gradients, no drop shadows, no soft shading, no hatching, no crosshatching.
-  • Think of it as: black ink pen on white paper, nothing else.
-  • Bold uniform lineart. Coloring-book quality. High contrast.
-  • DO NOT include any text, letters, numbers, or written symbols anywhere in the image.\
+ABSOLUTE RULES:
+- NO text anywhere in the image (not even single letters or symbols that look like text)
+- NO gray pixels anywhere
+- NO shading or gradients
+- The bottom 30% must be completely empty white space
+- The decorative border must be complete on ALL FOUR sides including around \
+the bottom white area\
 """
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ZODIAC DATA
-# ══════════════════════════════════════════════════════════════════════════════
-
-ZODIAC: dict[str, dict] = {
-    "ariete": {
-        "soggetto_kawaii":    "a chubby kawaii ram with big curly horns, rosy cheeks, and sparkly eyes, sitting proudly",
-        "elementi_tematici":  "tiny flame, small star, sparkle cross",
-        "simbolo_bordo":      "tiny ram head",
-    },
-    "toro": {
-        "soggetto_kawaii":    "a cute kawaii bull with a round body, big soft eyes, and a small flower on its head",
-        "elementi_tematici":  "tiny rose, small leaf, sparkle",
-        "simbolo_bordo":      "tiny bull head",
-    },
-    "gemelli": {
-        "soggetto_kawaii":    "two identical chubby kawaii star-children with faces, holding hands and smiling at each other",
-        "elementi_tematici":  "tiny butterfly, small star, floating dot",
-        "simbolo_bordo":      "tiny pair of stars side by side",
-    },
-    "cancro": {
-        "soggetto_kawaii":    "a round kawaii crab with tiny claws raised, big sparkly eyes, and a happy expression",
-        "elementi_tematici":  "tiny crescent moon, small bubble, sparkle",
-        "simbolo_bordo":      "tiny crab silhouette",
-    },
-    "leone": {
-        "soggetto_kawaii":    "a proud fluffy kawaii lion with a large round mane, sitting regally with its tail curled",
-        "elementi_tematici":  "tiny sun ray, small crown, sparkle cross",
-        "simbolo_bordo":      "tiny lion head with mane",
-    },
-    "vergine": {
-        "soggetto_kawaii":    "a kawaii wheat sheaf bundle with a cute face, tied with a ribbon, surrounded by tiny daisies",
-        "elementi_tematici":  "tiny flower, small leaf, floating dot",
-        "simbolo_bordo":      "tiny daisy flower",
-    },
-    "bilancia": {
-        "soggetto_kawaii":    "a pair of kawaii golden scales in perfect balance, each pan holding a tiny glowing star",
-        "elementi_tematici":  "tiny feather, small star, sparkle",
-        "simbolo_bordo":      "tiny scales symbol",
-    },
-    "scorpione": {
-        "soggetto_kawaii":    "a chubby kawaii scorpion with a curled striped tail, big round eyes, and tiny claws",
-        "elementi_tematici":  "tiny crescent moon, small star, sparkle cross",
-        "simbolo_bordo":      "tiny scorpion silhouette",
-    },
-    "sagittario": {
-        "soggetto_kawaii":    "a kawaii centaur foal — cute round horse body with a small chibi archer on top, holding a tiny bow",
-        "elementi_tematici":  "tiny arrow, small star, sparkle",
-        "simbolo_bordo":      "tiny arrow pointing right",
-    },
-    "capricorno": {
-        "soggetto_kawaii":    "a kawaii sea-goat with small curved horns, a fish tail, and big round eyes, jumping happily",
-        "elementi_tematici":  "tiny snowflake, small gem, sparkle cross",
-        "simbolo_bordo":      "tiny sea-goat head",
-    },
-    "acquario": {
-        "soggetto_kawaii":    "a kawaii round water jug with a cute face, pouring a swirling arc of sparkly water drops",
-        "elementi_tematici":  "tiny water drop, small lightning bolt, bubble",
-        "simbolo_bordo":      "tiny water wave",
-    },
-    "pesci": {
-        "soggetto_kawaii":    "two chubby kawaii fish swimming nose-to-tail in a gentle circle, both smiling",
-        "elementi_tematici":  "tiny bubble, small heart, sparkle cross",
-        "simbolo_bordo":      "tiny fish",
-    },
-}
-
-# English aliases pointing to Italian entries
-_ALIASES = {
-    "aries": "ariete", "taurus": "toro", "gemini": "gemelli", "cancer": "cancro",
-    "leo": "leone", "virgo": "vergine", "libra": "bilancia", "scorpio": "scorpione",
-    "sagittarius": "sagittario", "capricorn": "capricorno", "aquarius": "acquario",
-    "pisces": "pesci",
-}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -186,14 +100,18 @@ _ALIASES = {
 
 def build_prompt(sign: str) -> str:
     key  = _ALIASES.get(sign, sign)
-    data = ZODIAC.get(key)
+    data = ZODIAC_CONFIG.get(key)
     if data is None:
         data = {
-            "soggetto_kawaii":   f"a kawaii {sign} symbol with big round eyes and rosy cheeks",
-            "elementi_tematici": "tiny star, small heart, sparkle",
-            "simbolo_bordo":     f"tiny {sign} symbol",
+            "simbolo_angolo":  f"{sign} stylized decorative element",
+            "simbolo_lato":    f"small cute {sign} symbol",
+            "soggetto_kawaii": f"one adorable kawaii {sign} symbol with big round eyes and rosy cheeks",
         }
-    return MASTER_PROMPT_TEMPLATE.format(segno=sign.capitalize(), **data)
+    return MASTER_PROMPT_TEMPLATE.format(
+        simbolo_angolo=data["simbolo_angolo"],
+        simbolo_lato=data["simbolo_lato"],
+        soggetto_kawaii=data["soggetto_kawaii"],
+    )
 
 
 def generate_image(prompt: str, client: OpenAI) -> Image.Image:
@@ -223,12 +141,11 @@ def binarize(img: Image.Image, threshold: int = BINARIZE_THR) -> Image.Image:
 
 
 def enforce_white_text_zone(img: Image.Image) -> Image.Image:
-    """Wipe the interior of the text zone to pure white, preserving border strip on sides/bottom."""
-    w, h     = img.size
-    margin   = int(w * BORDER_RATIO)   # estimated border width to leave intact
-    zone_y   = int(h * (1 - TEXT_RATIO))
-    draw     = ImageDraw.Draw(img)
-    # Clear interior only: inset by margin on left, right, and bottom
+    """Wipe the interior of the text zone to pure white, preserving the border strip."""
+    w, h    = img.size
+    margin  = int(w * BORDER_RATIO)
+    zone_y  = int(h * (1 - TEXT_RATIO))
+    draw    = ImageDraw.Draw(img)
     draw.rectangle([(margin, zone_y), (w - margin, h - margin)], fill=(255, 255, 255))
     return img
 
@@ -266,14 +183,12 @@ def _wrap_to_width(draw: ImageDraw.ImageDraw, text: str,
 def inject_text(img: Image.Image, phrase: str) -> Image.Image:
     w, h        = img.size
     border_px   = int(w * BORDER_RATIO)
-    # Text area: inside border on sides, inside border at bottom
     zone_top    = int(h * (1 - TEXT_RATIO))
     zone_bottom = h - border_px
     zone_h      = zone_bottom - zone_top
-    # Horizontal padding: border width + breathing room
     h_padding   = border_px + int(w * 0.06)
     max_text_w  = w - 2 * h_padding
-    target_h    = int(zone_h * 0.60)   # text fills 60% of available interior height
+    target_h    = int(zone_h * 0.60)
 
     draw = ImageDraw.Draw(img)
 
@@ -294,18 +209,16 @@ def inject_text(img: Image.Image, phrase: str) -> Image.Image:
         best_lines = _wrap_to_width(draw, phrase, best_font, max_text_w)
         best_gap   = 6
 
-    font     = best_font
-    line_h   = draw.textbbox((0, 0), "Ay", font=font)[3]
-    blk_h    = line_h * len(best_lines) + best_gap * (len(best_lines) - 1)
-    y_start  = zone_top + (zone_h - blk_h) // 2   # centered in interior zone
-    stroke   = max(4, int(line_h * 0.08))
+    font   = best_font
+    line_h = draw.textbbox((0, 0), "Ay", font=font)[3]
+    blk_h  = line_h * len(best_lines) + best_gap * (len(best_lines) - 1)
+    y_start = zone_top + (zone_h - blk_h) // 2
 
     y = y_start
     for line in best_lines:
         lw = draw.textbbox((0, 0), line, font=font)[2]
         x  = (w - lw) // 2
-        draw.text((x, y), line, font=font,
-                  fill=(255, 255, 255), stroke_width=stroke, stroke_fill=(0, 0, 0))
+        draw.text((x, y), line, font=font, fill=(0, 0, 0))
         y += line_h + best_gap
 
     return img
@@ -323,7 +236,7 @@ def main() -> None:
     parser.add_argument("sign",     help="Zodiac sign (e.g. leone, pesci, leo, pisces)")
     parser.add_argument("phrase",   help="Ironic phrase to inject in the text zone")
     parser.add_argument("language", help="Language code (it / en / es / fr …)")
-    parser.add_argument("--out-dir",       default="output", metavar="DIR")
+    parser.add_argument("--out-dir",       default="output/pages", metavar="DIR")
     parser.add_argument("--threshold",     type=int, default=BINARIZE_THR, metavar="N",
                         help=f"Binarization threshold 0–255 (default: {BINARIZE_THR})")
     parser.add_argument("--skip-generate", metavar="IMAGE_PATH",
@@ -345,7 +258,6 @@ def main() -> None:
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     slug = f"{sign}_{ts}"
 
-    # 1. Raw image
     if args.skip_generate:
         print(f"[1/4] Loading: {args.skip_generate}")
         raw_img = Image.open(args.skip_generate).convert("RGB")
@@ -357,16 +269,13 @@ def main() -> None:
         raw_img.save(raw_path)
         print(f"      → {raw_path}")
 
-    # 2. Binarize + enforce white text zone
     print(f"[2/4] Binarizing (threshold={args.threshold})…")
     proc = binarize(raw_img, args.threshold)
     proc = enforce_white_text_zone(proc)
 
-    # 3. Upscale to KDP
     print(f"[3/4] Upscaling to {KDP_W}×{KDP_H} px…")
     kdp = upscale_to_kdp(proc)
 
-    # 4. Inject text
     print(f'[4/4] Injecting: "{args.phrase}"')
     final = inject_text(kdp, args.phrase)
 

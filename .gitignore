@@ -1,5 +1,22 @@
+# Python
 .venv/
 __pycache__/
-*.pyc
-output/
+*.py[cod]
+
+# Environment & secrets
+.env
 .claude/settings.local.json
+
+# Ruflo runtime (non committare stato di sessione)
+.claude-flow/
+.swarm/
+.mcp.json
+
+# Generated output (large files)
+output/
+*.png
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
