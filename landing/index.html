@@ -61,7 +61,7 @@
       await fetch('/api/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, source: 'kdp_book_qr' }),
+        body: JSON.stringify({ email, source: new URLSearchParams(location.search).get('source') || 'kdp_book_qr' }),
       });
     } catch (err) {
       console.warn('Subscribe error:', err);
