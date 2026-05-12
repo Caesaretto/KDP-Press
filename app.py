@@ -7,11 +7,13 @@ Run: streamlit run app.py
 import io
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # ── Internal imports ──────────────────────────────────────────────────────────
 from niche_config import NICHES, NICHE_ORDER
@@ -25,9 +27,14 @@ from generate_page import (
     inject_text,
     KDP_W, KDP_H, OUTPUT_DPI, BINARIZE_THR,
 )
-from special_pages import make_qr_page, make_frontespizio, make_test_colors, make_black_page
+from special_pages import (
+    make_qr_page, make_frontespizio, make_test_colors, make_black_page,
+    make_review_page, make_collection_page,
+)
+from frasi_zodiacali import FRASI
 from keyword_extractor import expand_keywords, MARKETS
 from landing_page_generator import generate_landing_page
+import pdf_assembler
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 OUTPUT_PAGES   = Path("output/pages")
@@ -131,6 +138,50 @@ def _get_api_key() -> str:
     return key
 
 
+DAILY_IMAGE_CAP = int(os.environ.get("DAILY_IMAGE_CAP", "50"))
+QUOTA_FILE = Path("output/.quota.json")
+
+
+def _load_quota() -> dict:
+    if not QUOTA_FILE.exists():
+        return {}
+    try:
+        return json.loads(QUOTA_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_quota(data: dict) -> None:
+    QUOTA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    QUOTA_FILE.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _check_image_quota() -> None:
+    """Enforce a daily cap on AI image generations, persisted in output/.quota.json
+    so refresh / new tabs can't bypass it. Raises a Streamlit error and halts
+    execution when exceeded.
+    """
+    today = datetime.now().date().isoformat()
+    quota = _load_quota()
+    count = int(quota.get(today, 0))
+    if count >= DAILY_IMAGE_CAP:
+        st.error(
+            f"Quota giornaliera raggiunta ({DAILY_IMAGE_CAP} immagini). "
+            f"Riprova domani o aumenta DAILY_IMAGE_CAP nelle env vars."
+        )
+        st.stop()
+    quota[today] = count + 1
+    # Keep only the last 7 days of history
+    keys = sorted(quota.keys())
+    if len(keys) > 7:
+        for k in keys[:-7]:
+            quota.pop(k, None)
+    _save_quota(quota)
+    # Mirror the count in session_state for live UI display
+    st.session_state["img_quota_date"] = today
+    st.session_state["img_quota_count"] = count + 1
+
+
 def _generate_illustration(
     simbolo_angolo: str,
     simbolo_lato: str,
@@ -146,11 +197,12 @@ def _generate_illustration(
         simbolo_lato=simbolo_lato,
         soggetto_kawaii=soggetto_kawaii,
     )
+    _check_image_quota()
     raw   = generate_image(prompt, client)
-    proc  = binarize(raw, threshold)
+    kdp   = upscale_to_kdp(raw)
+    proc  = binarize(kdp, threshold)
     proc  = enforce_white_text_zone(proc)
-    kdp   = upscale_to_kdp(proc)
-    final = inject_text(kdp, phrase)
+    final = inject_text(proc, phrase)
 
     OUTPUT_PAGES.mkdir(parents=True, exist_ok=True)
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -159,12 +211,80 @@ def _generate_illustration(
     return path
 
 
+def _generate_zodiac_illustration(sign: str, phrase: str, idx: int,
+                                  threshold: int = BINARIZE_THR) -> Path:
+    """Generate one zodiac illustration and save with a pdf_assembler-compatible
+    filename (`{sign}_{ts}_{idx}_final.png` in output/pages/)."""
+    from openai import OpenAI
+    cfg = ZODIAC_CONFIG[sign]
+    prompt = MASTER_PROMPT_TEMPLATE.format(
+        simbolo_angolo=cfg["simbolo_angolo"],
+        simbolo_lato=cfg["simbolo_lato"],
+        soggetto_kawaii=cfg["soggetto_kawaii"],
+    )
+    _check_image_quota()
+    client = OpenAI(api_key=_get_api_key() or None)
+    raw   = generate_image(prompt, client)
+    kdp   = upscale_to_kdp(raw)
+    proc  = binarize(kdp, threshold)
+    proc  = enforce_white_text_zone(proc)
+    final = inject_text(proc, phrase)
+    OUTPUT_PAGES.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = OUTPUT_PAGES / f"{sign}_{ts}_{idx:02d}_final.png"
+    final.save(path, dpi=(OUTPUT_DPI, OUTPUT_DPI))
+    return path
+
+
+def _build_all_special_pages(qr_url: str | None = None) -> list[Path]:
+    """Render the 6 special pages (front + back matter + black separator)."""
+    OUTPUT_SPECIAL.mkdir(parents=True, exist_ok=True)
+    url = qr_url or st.session_state.get("qr_url", "https://thedailyburnoutpress.com/bonus")
+    saved: list[Path] = []
+    builders = [
+        ("01_qr_code.png",       lambda: make_qr_page(url)),
+        ("02_frontespizio.png",  make_frontespizio),
+        ("03_test_colors.png",   make_test_colors),
+        ("black_separator.png",  make_black_page),
+        ("98_review.png",        lambda: make_review_page(url)),
+        ("99_collection.png",    make_collection_page),
+    ]
+    for fname, build in builders:
+        img = build()
+        out = OUTPUT_SPECIAL / fname
+        img.save(out, dpi=(OUTPUT_DPI, OUTPUT_DPI))
+        saved.append(out)
+    return saved
+
+
+def _assemble_full_book_pdf(lang: str = "it",
+                            output_name: str = "zodiacale_v1.pdf") -> tuple[bytes, dict]:
+    """Run pdf_assembler over output/pages + output/special, return (bytes, qc)."""
+    pages = pdf_assembler.collect_pages(lang, target_illustrations=pdf_assembler.TARGET_ILLUSTRATIONS)
+    qc = pdf_assembler.qc_report(pages, target=pdf_assembler.TARGET_PAGES)
+    OUTPUT_FINAL.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_FINAL / Path(output_name).name
+    pdf_assembler.assemble_pdf(pages, out_path)
+    return out_path.read_bytes(), qc
+
+
 def _assemble_pdf_bytes() -> bytes:
     pages = st.session_state.project["pages"]
+    allowed_roots = [
+        OUTPUT_PAGES.resolve(),
+        OUTPUT_SPECIAL.resolve(),
+        OUTPUT_FINAL.resolve(),
+    ]
     images: list[Image.Image] = []
     for p in pages:
         try:
-            img = Image.open(p["path"]).convert("RGB")
+            page_path = Path(p["path"]).resolve()
+            if not any(
+                str(page_path).startswith(str(root) + os.sep) or page_path == root
+                for root in allowed_roots
+            ):
+                continue
+            img = Image.open(page_path).convert("RGB")
             if img.size != (KDP_W, KDP_H):
                 img = img.resize((KDP_W, KDP_H), Image.LANCZOS)
             images.append(img)
@@ -425,40 +545,116 @@ def page_book_builder() -> None:
                 _save_project()
                 st.rerun()
 
-    # ── Tab 4: Export PDF ─────────────────────────────────────────────────────
+    # ── Tab 4: Export PDF — full 65-page KDP build pipeline ──────────────────
     with tab_export:
-        st.subheader("Export PDF KDP")
+        st.subheader("Build libro KDP completo")
+        st.caption("Pipeline in 3 step. Lo step 2 chiama l'API (~$1.20 per zodiacale).")
 
-        pages = proj["pages"]
-        illus = _count_illustrations()
+        on_disk_illus = sorted(OUTPUT_PAGES.glob("*_final.png")) if OUTPUT_PAGES.exists() else []
+        special_files = sorted(OUTPUT_SPECIAL.glob("*.png")) if OUTPUT_SPECIAL.exists() else []
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Pagine totali", len(pages))
-        col2.metric("Illustrazioni", f"{illus}/30")
-        col3.metric("Formato", "8.5\" × 11\"")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Special pages",   f"{len(special_files)}/6")
+        col2.metric("Illustrazioni",   f"{len(on_disk_illus)}/30")
+        col3.metric("Pagine progetto", len(proj["pages"]))
+        col4.metric("Formato",         "8.5\" × 11\"")
 
-        if illus < 30:
-            st.warning(f"Il libro ha {illus}/30 illustrazioni. Puoi esportare comunque come bozza.")
+        st.markdown("##### Step 1 · Genera special pages")
+        st.caption("QR, Frontespizio, Test Colors, Black separator, Review, Collection. Zero costo API.")
+        s1a, s1b = st.columns([2, 1])
+        qr_url = s1a.text_input("URL QR", value=st.session_state.get("qr_url",
+                                "https://thedailyburnoutpress.com/bonus"),
+                                key="export_qr_url")
+        if s1b.button("🪄 Genera 6 special pages", type="secondary", use_container_width=True,
+                      key="export_step1"):
+            with st.spinner("Generando…"):
+                try:
+                    saved = _build_all_special_pages(qr_url)
+                    st.session_state["qr_url"] = qr_url
+                    st.success(f"✅ {len(saved)} file in {OUTPUT_SPECIAL}/")
+                except Exception as e:
+                    st.error(f"Errore: {e}")
 
-        if not pages:
-            st.error("Nessuna pagina da esportare.")
-        else:
-            if st.button("📥 Genera PDF", type="primary"):
-                with st.spinner("Assemblando PDF… (può richiedere qualche minuto)"):
+        st.markdown("##### Step 2 · Batch generate 30 illustrazioni zodiacali")
+        s2a, s2b, s2c = st.columns([1, 1, 1])
+        lang = s2a.selectbox("Lingua", ["it", "en"], key="export_lang")
+        threshold = s2b.slider("Threshold B/W", 100, 220, BINARIZE_THR, 5, key="export_thr")
+        s2c.metric("Costo stimato", f"~${30 * 0.04:.2f}")
+        if niche_key != "astrology":
+            st.info("Batch automatico disponibile solo per la nicchia **Astrology** (usa FRASI). "
+                    "Per altre nicchie usa Book Builder o Studio Mode.")
+        elif st.button("⚡ Genera 30 illustrazioni",
+                       type="primary", use_container_width=True,
+                       disabled=not _get_api_key(), key="export_step2"):
+            jobs: list[tuple[str, str]] = []
+            for sign in SIGN_ORDER:
+                for phrase in FRASI.get(sign, {}).get(lang, []):
+                    jobs.append((sign, phrase))
+            jobs = jobs[:30]
+            prog = st.progress(0.0, text=f"0/{len(jobs)}")
+            done, errs = 0, []
+            for i, (sign, phrase) in enumerate(jobs, 1):
+                try:
+                    path = _generate_zodiac_illustration(sign, phrase, i, threshold=threshold)
+                    done += 1
+                    prog.progress(i / len(jobs),
+                                  text=f"{i}/{len(jobs)} · {sign} · {Path(path).name}")
+                except Exception as e:
+                    errs.append(f"{sign}/{phrase}: {e}")
+                    prog.progress(i / len(jobs),
+                                  text=f"{i}/{len(jobs)} · {sign} · ERROR")
+            prog.empty()
+            if done == len(jobs):
+                st.success(f"✅ {done}/{len(jobs)} generate")
+            else:
+                st.warning(f"⚠ {done}/{len(jobs)} ok · {len(errs)} errori")
+                with st.expander("Dettagli errori"):
+                    st.code("\n".join(errs))
+
+        st.markdown("##### Step 3 · Assembla PDF KDP 65 pagine")
+        st.caption("Usa output/special/* + output/pages/* (round-robin 30 ill. + 2 back matter). "
+                   "QC: 65 pp esatte, 8.5×11\" @ 300 DPI.")
+        s3a, s3b = st.columns([2, 1])
+        out_name = s3a.text_input("Nome file output", value="zodiacale_v1.pdf",
+                                  key="export_out_name")
+        if s3b.button("📕 Assembla 65 pp", type="primary", use_container_width=True,
+                      key="export_step3"):
+            try:
+                with st.spinner("Assemblando…"):
+                    pdf_bytes, qc = _assemble_full_book_pdf(lang=lang, output_name=out_name)
+                badge = "✅ OK" if qc["ok"] else f"⚠ {qc['actual']}/{qc['target']}"
+                st.success(f"{badge} · {len(pdf_bytes)/1e6:.1f} MB · output/final/{Path(out_name).name}")
+                if qc["issues"]:
+                    with st.expander(f"QC issues ({len(qc['issues'])})"):
+                        for issue in qc["issues"][:20]:
+                            st.text(f"- {issue}")
+                st.download_button(
+                    f"⬇️ Scarica {Path(out_name).name}", pdf_bytes,
+                    file_name=Path(out_name).name, mime="application/pdf",
+                    type="primary", key="export_dl_full",
+                )
+            except Exception as e:
+                st.error(f"Errore: {e}")
+
+        st.divider()
+        with st.expander("📥 Draft PDF dalla session (pagine nel Book Builder)"):
+            pages = proj["pages"]
+            if not pages:
+                st.info("Nessuna pagina nella session corrente.")
+            elif st.button("Genera draft", key="export_draft"):
+                with st.spinner("Assemblando draft…"):
                     pdf_bytes = _assemble_pdf_bytes()
                 if pdf_bytes:
                     niche_name = NICHES.get(niche_key, {}).get("name", niche_key).replace(" ", "_")
-                    filename   = f"kdp_{niche_name}_DRAFT.pdf"
+                    filename = f"kdp_{niche_name}_DRAFT.pdf"
                     st.download_button(
-                        label=f"⬇️ Scarica {filename}",
-                        data=pdf_bytes,
-                        file_name=filename,
-                        mime="application/pdf",
-                        type="primary",
+                        f"⬇️ Scarica {filename}", pdf_bytes,
+                        file_name=filename, mime="application/pdf",
+                        key="export_dl_draft",
                     )
-                    st.success(f"PDF generato: {len(pdf_bytes)/1e6:.1f} MB — {len(pages)} pagine")
+                    st.success(f"Draft: {len(pdf_bytes)/1e6:.1f} MB · {len(pages)} pagine")
                 else:
-                    st.error("Errore durante la generazione del PDF.")
+                    st.error("Errore.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -477,146 +673,588 @@ TEXT_STYLES: dict[str, str] = {
     "Lettering decorativo": "with an ornate decorative empty frame at the bottom of the illustration, surrounded by flourishes but empty inside",
 }
 
+BORDER_STYLES = {
+    "kawaii-tarot":  "kawaii tarot card border, ornate but clean, double line with corner ornaments",
+    "art-deco":      "art-deco geometric border, symmetric stepped chevrons and fan motifs",
+    "vintage":       "vintage etched border, fine engraved filigree, classical scrollwork",
+    "minimal":       "thin minimal double-line border, no ornaments, generous whitespace",
+    "none":          "",
+}
+
+LAYOUTS = {
+    "top70-bottom30":   "TOP 70% kawaii illustration / BOTTOM 30% completely empty white rectangle for text",
+    "full-page":        "single full-bleed illustration filling the entire page edge-to-edge",
+    "center-piece":     "single centered medallion illustration with generous white margins on all sides",
+    "split-vertical":   "LEFT 50% illustration / RIGHT 50% completely empty white rectangle for text",
+    "split-horizontal": "TOP 50% illustration / BOTTOM 50% completely empty white rectangle for text",
+}
+
+OUTPUT_MODES    = ("B&W puro", "Grayscale", "RGB color")
+PIPELINE_ORDERS = ("upscale_then_binarize", "binarize_then_upscale")
+SIZE_OPTIONS    = ("1024x1024", "1024x1536", "1536x1024")
+QUALITY_OPTIONS = ("low", "medium", "high")
+MODEL_OPTIONS   = ("gpt-image-1",)
+
+# Approximate OpenAI list-price (USD per image) — UI display only
+COST_TABLE = {
+    ("gpt-image-1", "low"):    {"1024x1024": 0.011, "1024x1536": 0.016, "1536x1024": 0.016},
+    ("gpt-image-1", "medium"): {"1024x1024": 0.042, "1024x1536": 0.063, "1536x1024": 0.063},
+    ("gpt-image-1", "high"):   {"1024x1024": 0.167, "1024x1536": 0.250, "1536x1024": 0.250},
+}
+
+STUDIO_PRESETS_DIR = Path("output/studio_presets")
+STUDIO_OUT_DIR     = Path("output/studio")
+COVER_OUT_DIR      = Path("output/cover")
+
+
+# ── Studio session-state init ─────────────────────────────────────────────────
+
+def _studio_state() -> dict:
+    if "studio" not in st.session_state:
+        st.session_state["studio"] = {
+            "results": [],
+            "last_prompt": "",
+        }
+    return st.session_state["studio"]
+
+
+def _slugify(s: str, maxlen: int = 40) -> str:
+    s = re.sub(r"[^A-Za-z0-9]+", "_", (s or "").strip()).strip("_").lower()
+    return (s[:maxlen] or "untitled")
+
+
+def _estimate_cost(model: str, quality: str, size: str, n: int) -> float:
+    return COST_TABLE.get((model, quality), {}).get(size, 0.05) * max(1, n)
+
+
+def _refund_quota_slot() -> None:
+    """Decrement today's persisted quota by 1 (after a failed API call)."""
+    today = datetime.now().date().isoformat()
+    quota = _load_quota()
+    quota[today] = max(0, int(quota.get(today, 0)) - 1)
+    _save_quota(quota)
+    st.session_state["img_quota_count"] = max(0, st.session_state.get("img_quota_count", 0) - 1)
+
+
+# ── Prompt builder ────────────────────────────────────────────────────────────
+
+def _build_template_prompt(
+    *, layout: str, border_style: str, corner_sym: str, side_sym: str,
+    subject: str, kawaii_rules: bool, anti_gray: bool, custom_rules: str,
+    text_style_phrase: str, drop_bottom_empty: bool,
+) -> str:
+    """Compose a master prompt from togglable sections."""
+    parts: list[str] = []
+    parts.append(
+        "Black and white kawaii coloring book illustration page. "
+        "Pure black outlines on pure white background. Bold uniform linework throughout."
+    )
+
+    layout_text = LAYOUTS.get(layout, LAYOUTS["top70-bottom30"])
+    if drop_bottom_empty and layout == "top70-bottom30":
+        layout_text = (
+            "single full-page illustration with the text-container element "
+            "integrated into the composition (see MAIN ILLUSTRATION below)"
+        )
+    parts.append(f"PAGE LAYOUT (critical):\n{layout_text}")
+
+    if border_style and border_style != "none":
+        parts.append(
+            "DECORATIVE BORDER (must surround the entire page):\n"
+            f"- Style: {BORDER_STYLES[border_style]}\n"
+            f"- Four corners: large {corner_sym} filling each corner space\n"
+            f"- All four sides: {side_sym} repeated at regular intervals along the side\n"
+            "- Border width: approximately 8% of page width on each side"
+        )
+
+    main = f"MAIN ILLUSTRATION:\n- Subject: {subject}"
+    if text_style_phrase:
+        main += f"\n- Text-container: {text_style_phrase}"
+    if kawaii_rules:
+        main += (
+            "\n- Style: chibi kawaii, big cute round eyes, simple happy expression, rounded shapes"
+            "\n- Background: pure white with at most 4 small decorative elements scattered"
+        )
+    parts.append(main)
+
+    rules: list[str] = ["NO text, letters, or numbers anywhere in the image"]
+    if anti_gray:
+        rules += ["NO gray pixels anywhere", "NO shading, NO gradients, NO textures"]
+    if custom_rules.strip():
+        rules += [r.strip() for r in custom_rules.splitlines() if r.strip()]
+    parts.append("ABSOLUTE RULES:\n- " + "\n- ".join(rules))
+
+    return "\n\n".join(parts)
+
+
+# ── Preset I/O ────────────────────────────────────────────────────────────────
+
+def _list_presets() -> list[str]:
+    STUDIO_PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+    return sorted(p.stem for p in STUDIO_PRESETS_DIR.glob("*.json"))
+
+
+def _save_preset(name: str, payload: dict) -> Path:
+    STUDIO_PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+    safe = _slugify(name)
+    path = STUDIO_PRESETS_DIR / f"{safe}.json"
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def _load_preset(name: str) -> dict:
+    path = STUDIO_PRESETS_DIR / f"{name}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+# ── Smart text injection: detect a blank white region and write inside it ─────
+
+def _largest_white_region(arr_l: np.ndarray, white_thr: int = 245):
+    """Find bounding box of the largest connected white blob.
+
+    Pure numpy/Pillow — no scipy/cv2. Adequate for the well-separated white
+    containers that gpt-image-1 produces (banner, scroll, mug-label, etc.).
+    Returns (x0, y0, x1, y1) or None.
+    """
+    h, w = arr_l.shape
+    mask = arr_l >= white_thr
+
+    scale = max(1, max(w, h) // 512)
+    if scale > 1:
+        mask = mask[::scale, ::scale]
+    mh, mw = mask.shape
+
+    labels = np.zeros(mask.shape, dtype=np.int32)
+    next_id = 1
+    parent: dict = {}
+
+    def find(x):
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for y in range(mh):
+        for x in range(mw):
+            if not mask[y, x]:
+                continue
+            up   = labels[y - 1, x] if y > 0 else 0
+            left = labels[y, x - 1] if x > 0 else 0
+            if up and left:
+                lab = min(up, left)
+                labels[y, x] = lab
+                union(int(up), int(left))
+            elif up or left:
+                labels[y, x] = up or left
+            else:
+                parent[next_id] = next_id
+                labels[y, x] = next_id
+                next_id += 1
+    if next_id == 1:
+        return None
+
+    flat = labels.ravel()
+    roots = np.zeros_like(flat)
+    cache: dict = {}
+    for i, v in enumerate(flat):
+        v = int(v)
+        if v == 0:
+            continue
+        r = cache.get(v)
+        if r is None:
+            r = find(v)
+            cache[v] = r
+        roots[i] = r
+    roots = roots.reshape(labels.shape)
+
+    best = (0, (0, 0, 0, 0))
+    for rid in np.unique(roots):
+        if rid == 0:
+            continue
+        ys, xs = np.where(roots == rid)
+        area = ys.size
+        touches_all_edges = (ys.min() == 0 and ys.max() == mh - 1
+                             and xs.min() == 0 and xs.max() == mw - 1)
+        if touches_all_edges:
+            continue
+        if area > best[0]:
+            best = (area, (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())))
+
+    if best[0] == 0:
+        return None
+    x0, y0, x1, y1 = best[1]
+    inset = 4
+    return (max(0, x0 * scale + inset),
+            max(0, y0 * scale + inset),
+            min(w - 1, x1 * scale - inset),
+            min(h - 1, y1 * scale - inset))
+
+
+def inject_text_in_zone(img: Image.Image, phrase: str) -> Image.Image:
+    """Detect the largest empty white region in the AI output and write inside.
+    Falls back to legacy bottom-band inject_text() if no zone is found."""
+    if not phrase:
+        return img
+    arr_l = np.array(img.convert("L"))
+    box = _largest_white_region(arr_l)
+    if box is None:
+        return inject_text(img, phrase)
+
+    from generate_page import _load_font, _wrap_to_width
+    x0, y0, x1, y1 = box
+    zone_w = max(40, x1 - x0)
+    zone_h = max(20, y1 - y0)
+
+    draw = ImageDraw.Draw(img)
+    h_pad = int(zone_w * 0.05)
+    max_w = zone_w - 2 * h_pad
+    target_h = int(zone_h * 0.80)
+
+    best = None
+    for fs in range(int(zone_h * 0.9), 14, -3):
+        font = _load_font(fs)
+        lines = _wrap_to_width(draw, phrase, font, max_w)
+        line_gap = int(fs * 0.25)
+        line_h = draw.textbbox((0, 0), "Ay", font=font)[3]
+        blk_h = line_h * len(lines) + line_gap * (len(lines) - 1)
+        max_lw = max(draw.textbbox((0, 0), ln, font=font)[2] for ln in lines)
+        if blk_h <= target_h and max_lw <= max_w:
+            best = (font, lines, line_gap, line_h, blk_h)
+            break
+    if best is None:
+        font = _load_font(18)
+        lines = _wrap_to_width(draw, phrase, font, max_w)
+        line_h = draw.textbbox((0, 0), "Ay", font=font)[3]
+        best = (font, lines, 6, line_h, line_h * len(lines) + 6 * (len(lines) - 1))
+
+    font, lines, line_gap, line_h, blk_h = best
+    y = y0 + (zone_h - blk_h) // 2
+    for line in lines:
+        lw = draw.textbbox((0, 0), line, font=font)[2]
+        x = x0 + (zone_w - lw) // 2
+        draw.text((x, y), line, font=font, fill=(0, 0, 0))
+        y += line_h + line_gap
+    return img
+
+
+# ── Quota-safe API call (refunds on failure) ──────────────────────────────────
+
+def _generate_with_refund(prompt: str, *, model: str, size: str,
+                          quality: str, n: int) -> list[Image.Image]:
+    from openai import OpenAI
+    import base64
+    import urllib.request
+    from urllib.parse import urlparse
+    from io import BytesIO
+
+    client = OpenAI(api_key=_get_api_key() or None)
+    out: list[Image.Image] = []
+    for _ in range(n):
+        _check_image_quota()
+        try:
+            resp = client.images.generate(
+                model=model, prompt=prompt, size=size, quality=quality, n=1,
+            )
+            item = resp.data[0]
+            if getattr(item, "b64_json", None):
+                out.append(Image.open(BytesIO(base64.b64decode(item.b64_json))).convert("RGB"))
+            elif getattr(item, "url", None):
+                parsed = urlparse(item.url)
+                if parsed.scheme != "https" or not parsed.hostname or not (
+                    parsed.hostname.endswith(".openai.com")
+                    or parsed.hostname.endswith(".oaiusercontent.com")
+                    or parsed.hostname.endswith(".azure.com")
+                ):
+                    raise RuntimeError(f"Refusing to fetch image from unexpected host: {parsed.hostname}")
+                with urllib.request.urlopen(item.url, timeout=30) as r:
+                    out.append(Image.open(BytesIO(r.read())).convert("RGB"))
+            else:
+                raise RuntimeError("OpenAI response: no b64_json or url found.")
+        except Exception:
+            _refund_quota_slot()
+            raise
+    return out
+
+
+# ── Pipeline runner with all toggles ──────────────────────────────────────────
+
+def _run_pipeline(
+    raw: Image.Image, *, threshold: int, output_mode: str, pipeline_order: str,
+    do_white_zone: bool, phrase: str, do_inject: bool, use_zone_detector: bool,
+    out_w: int, out_h: int,
+) -> tuple[Image.Image, dict]:
+    """Apply the configured post-processing chain. QC computed AFTER everything."""
+    img = raw
+
+    if pipeline_order == "upscale_then_binarize":
+        if img.size != (out_w, out_h):
+            img = img.resize((out_w, out_h), Image.BICUBIC)
+        if output_mode == "B&W puro":
+            img = binarize(img, threshold)
+        elif output_mode == "Grayscale":
+            img = img.convert("L").convert("RGB")
+        if do_white_zone:
+            img = enforce_white_text_zone(img)
+    else:  # binarize_then_upscale (legacy)
+        if output_mode == "B&W puro":
+            img = binarize(img, threshold)
+        elif output_mode == "Grayscale":
+            img = img.convert("L").convert("RGB")
+        if do_white_zone:
+            img = enforce_white_text_zone(img)
+        if img.size != (out_w, out_h):
+            img = img.resize((out_w, out_h), Image.BICUBIC)
+
+    if do_inject and phrase:
+        img = inject_text_in_zone(img, phrase) if use_zone_detector else inject_text(img, phrase)
+
+    arr = np.array(img.convert("L"))
+    qc = {
+        "white_pct":   float((arr > 200).mean() * 100),
+        "gray_pixels": int(((arr > 10) & (arr < 245)).sum()),
+    }
+    qc["kdp_ok"] = (output_mode != "B&W puro") or (qc["gray_pixels"] < 1000)
+    return img, qc
+
+
+# ── UI ────────────────────────────────────────────────────────────────────────
 
 def page_studio_mode() -> None:
     st.title("🎨 Studio Mode")
-    st.caption("Controllo avanzato sulla generazione — per copertine e illustrazioni hero")
-
+    st.caption("Controllo estremo: prompt, layout, pipeline, QC")
     if not _get_api_key():
         st.error("API Key OpenAI mancante. Inseriscila nella sidebar.")
 
-    col_left, col_right = st.columns([1, 1])
+    state = _studio_state()
+    tab_quick, tab_custom, tab_advanced, tab_cover = st.tabs(
+        ["⚡ Quick", "🧱 Custom", "🔧 Advanced", "📕 Cover"]
+    )
 
-    with col_left:
-        st.subheader("Parametri di Generazione")
+    def _api_param_block(prefix: str) -> dict:
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+        model   = c1.selectbox("Model",   MODEL_OPTIONS,   key=f"{prefix}_model")
+        size    = c2.selectbox("Size",    SIZE_OPTIONS,    index=1, key=f"{prefix}_size")
+        quality = c3.selectbox("Quality", QUALITY_OPTIONS, index=2, key=f"{prefix}_quality")
+        n_var   = c4.number_input("Variants", 1, 4, 1, key=f"{prefix}_n")
+        cost = _estimate_cost(model, quality, size, int(n_var))
+        st.caption(f"💰 Costo stimato: ~${cost:.3f}  ·  Quota oggi: "
+                   f"{st.session_state.get('img_quota_count', 0)}/{DAILY_IMAGE_CAP}")
+        return {"model": model, "size": size, "quality": quality, "n": int(n_var)}
 
-        scene = st.text_area(
-            "Descrizione Scena",
-            placeholder="Es. exhausted office worker surrounded by paperwork and coffee cups, making a frustrated but funny face",
-            height=100,
-        )
+    def _pipeline_block(prefix: str, *, default_inject: bool = True) -> dict:
+        with st.expander("Post-processing", expanded=False):
+            c1, c2 = st.columns(2)
+            threshold   = c1.slider("Threshold B/W", 100, 220, BINARIZE_THR, 5, key=f"{prefix}_thr")
+            order       = c2.selectbox("Pipeline order", PIPELINE_ORDERS, key=f"{prefix}_order")
+            output_mode = c1.selectbox("Output mode", OUTPUT_MODES, key=f"{prefix}_outmode")
+            do_white    = c2.checkbox("enforce_white_text_zone", value=False, key=f"{prefix}_wz")
+            do_inj      = c1.checkbox("Inject phrase", value=default_inject, key=f"{prefix}_inj")
+            use_zone    = c2.checkbox("Detect white zone (smart)", value=True, key=f"{prefix}_zone")
+            c3, c4 = st.columns(2)
+            out_w = c3.number_input("Output W", 512, 6000, KDP_W, 50, key=f"{prefix}_w")
+            out_h = c4.number_input("Output H", 512, 6000, KDP_H, 50, key=f"{prefix}_h")
+            return {
+                "threshold": int(threshold), "pipeline_order": order, "output_mode": output_mode,
+                "do_white_zone": do_white, "do_inject": do_inj, "use_zone_detector": use_zone,
+                "out_w": int(out_w), "out_h": int(out_h),
+            }
 
-        phrase = st.text_input(
-            "Frase Satirica",
-            placeholder='Es. "I survived another Monday"',
-            max_chars=120,
-        )
+    def _persist_and_render(raw_imgs: list, prompt: str, pipe: dict,
+                            phrase: str, niche_slug: str, dest_book: bool) -> None:
+        STUDIO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results = []
+        for i, raw in enumerate(raw_imgs):
+            img, qc = _run_pipeline(raw, phrase=phrase, **pipe)
+            slug = _slugify(phrase or "studio")
+            path = STUDIO_OUT_DIR / f"{niche_slug}_{ts}_{i+1}_{slug}.png"
+            img.save(path, dpi=(OUTPUT_DPI, OUTPUT_DPI))
+            results.append({"path": str(path), "prompt": prompt, **qc})
+        state["results"] = results
+        state["last_prompt"] = prompt
+        if dest_book and results:
+            _add_page("illustration", Path(results[0]["path"]),
+                      {"phrase": phrase, "subject": "studio"})
 
-        text_style = st.selectbox(
-            "Stile Integrazione Testo",
-            list(TEXT_STYLES.keys()),
-            help="Come la frase viene visivamente integrata nell'illustrazione",
-        )
+    def _render_results() -> None:
+        if not state["results"]:
+            return
+        st.markdown("### Risultati")
+        cols = st.columns(min(4, len(state["results"])))
+        for i, (col, r) in enumerate(zip(cols, state["results"])):
+            with col:
+                t = _thumb(r["path"])
+                if t:
+                    st.image(t, use_container_width=True)
+                badge = "✅" if r["kdp_ok"] else "⚠️"
+                st.caption(f"{badge} grigi: {r['gray_pixels']:,} · bianco {r['white_pct']:.0f}%")
+                with open(r["path"], "rb") as f:
+                    st.download_button("⬇️ PNG", f.read(),
+                                       file_name=Path(r["path"]).name,
+                                       mime="image/png", key=f"dl_{i}_{Path(r['path']).stem}")
 
-        fill_elements = st.text_input(
-            "Elementi Riempitivi",
-            placeholder="Es. coffee cups, papers, staplers, tiny plants",
-            help="Oggetti extra da aggiungere nella scena, separati da virgola",
-        )
-
-        threshold = st.slider(
-            "Threshold B/W",
-            min_value=100, max_value=220, value=BINARIZE_THR, step=5,
-            help="Valori più alti = più bianco. Default: 160",
-        )
-
-        dest = st.radio(
-            "Destinazione output",
-            ["📚 Aggiungi al Book Builder", "🖼 Salva in output/cover/"],
-            horizontal=True,
-        )
-
-        generate_btn = st.button(
-            "🎨 Genera",
-            disabled=not scene or not _get_api_key(),
-            type="primary",
-            use_container_width=True,
-        )
-
-    with col_right:
-        st.subheader("Preview e Quality Control")
-
-        if generate_btn and scene:
-            style_addition = TEXT_STYLES[text_style]
-            fill_note = f" Include these fill elements scattered around: {fill_elements}." if fill_elements else ""
-
-            prompt = MASTER_PROMPT_TEMPLATE.format(
-                simbolo_angolo="decorative corner ornament with thematic elements",
-                simbolo_lato="small decorative thematic symbol",
-                soggetto_kawaii=f"{scene}, {style_addition}.{fill_note}",
+    # ─── TAB 1: QUICK ─────────────────────────────────────────────────────────
+    with tab_quick:
+        st.subheader("Quick — i 9 stili classici, ora con text-zone detection")
+        scene = st.text_area("Scena", height=80, key="q_scene",
+            placeholder="exhausted office worker surrounded by paperwork and coffee cups")
+        phrase = st.text_input("Frase satirica", max_chars=120, key="q_phrase")
+        text_style = st.selectbox("Stile testo", list(TEXT_STYLES.keys()), key="q_style")
+        fill = st.text_input("Elementi extra", key="q_fill",
+                             placeholder="coffee cups, papers, staplers")
+        api = _api_param_block("q")
+        pipe = _pipeline_block("q", default_inject=True)
+        dest = st.radio("Destinazione", ["📚 Book Builder", "🖼 output/studio/"],
+                        horizontal=True, key="q_dest")
+        if st.button("🎨 Genera", type="primary", key="q_btn",
+                     disabled=not scene or not _get_api_key()):
+            subj = f"{scene}, {TEXT_STYLES[text_style]}."
+            if fill:
+                subj += f" Include: {fill}."
+            prompt = _build_template_prompt(
+                layout="top70-bottom30", border_style="kawaii-tarot",
+                corner_sym="decorative kawaii corner ornament",
+                side_sym="small kawaii thematic symbol",
+                subject=subj, kawaii_rules=True, anti_gray=True, custom_rules="",
+                text_style_phrase=TEXT_STYLES[text_style], drop_bottom_empty=True,
             )
+            try:
+                with st.spinner(f"Generando {api['n']} variante/i…"):
+                    raws = _generate_with_refund(prompt, **api)
+                niche_key = st.session_state.project.get("niche") or "studio"
+                _persist_and_render(raws, prompt, pipe, phrase,
+                                    _slugify(niche_key), "Book" in dest)
+            except Exception as e:
+                st.error(f"Errore: {e}")
+        _render_results()
 
-            with st.spinner("Generando… (~30 secondi)"):
-                try:
-                    from openai import OpenAI
-                    client = OpenAI(api_key=_get_api_key() or None)
-                    raw   = generate_image(prompt, client)
-                    proc  = binarize(raw, threshold)
-                    proc  = enforce_white_text_zone(proc)
-                    kdp   = upscale_to_kdp(proc)
+    # ─── TAB 2: CUSTOM (template builder) ────────────────────────────────────
+    with tab_custom:
+        st.subheader("Custom — costruisci il prompt da sezioni")
+        c1, c2, c3 = st.columns([2, 2, 1])
+        presets = _list_presets()
+        sel = c1.selectbox("Preset", ["—"] + presets, key="c_preset_sel")
+        if sel != "—" and c2.button("📂 Carica preset", key="c_load"):
+            data = _load_preset(sel)
+            for k, v in data.items():
+                st.session_state[f"c_{k}"] = v
+            st.rerun()
+        preset_name = c2.text_input("Nome preset", key="c_preset_name")
+        if c3.button("💾 Salva", key="c_save", disabled=not preset_name):
+            keys = ["layout", "border", "corner", "side", "subject", "kawaii",
+                    "antigray", "rules", "style", "phrase", "fill"]
+            payload = {k: st.session_state.get(f"c_{k}") for k in keys}
+            p = _save_preset(preset_name, payload)
+            st.success(f"Salvato: {p.name}")
 
-                    if phrase:
-                        final = inject_text(kdp.copy(), phrase)
-                    else:
-                        final = kdp
+        layout = st.selectbox("Layout", list(LAYOUTS.keys()), key="c_layout")
+        b1, b2, b3 = st.columns(3)
+        border = b1.selectbox("Border style", list(BORDER_STYLES.keys()), key="c_border")
+        corner = b2.text_input("Corner symbol", value="decorative kawaii ornament", key="c_corner")
+        side   = b3.text_input("Side symbol",   value="small kawaii symbol", key="c_side")
+        subject = st.text_area("Subject", height=80, key="c_subject")
+        s1, s2 = st.columns(2)
+        kawaii = s1.checkbox("Kawaii style rules", value=True, key="c_kawaii")
+        antigray = s2.checkbox("Anti-gray rules",  value=True, key="c_antigray")
+        style = st.selectbox("Text-style integration", ["(none)"] + list(TEXT_STYLES.keys()),
+                             key="c_style")
+        rules = st.text_area("Custom rules (one per line)", height=70, key="c_rules")
+        phrase = st.text_input("Frase satirica", max_chars=120, key="c_phrase")
+        api = _api_param_block("c")
+        pipe = _pipeline_block("c", default_inject=True)
+        dest = st.radio("Destinazione", ["📚 Book Builder", "🖼 output/studio/"],
+                        horizontal=True, key="c_dest")
 
-                    # Quality metrics
-                    import numpy as np
-                    arr         = np.array(proc.convert("L"))
-                    white_pct   = float((arr > 200).mean() * 100)
-                    gray_pixels = int(((arr > 10) & (arr < 245)).sum())
-                    kdp_ok      = gray_pixels < 1000
+        ts_phrase = TEXT_STYLES[style] if style in TEXT_STYLES else ""
+        prompt_preview = _build_template_prompt(
+            layout=layout, border_style=border, corner_sym=corner, side_sym=side,
+            subject=subject or "(empty subject)", kawaii_rules=kawaii,
+            anti_gray=antigray, custom_rules=rules, text_style_phrase=ts_phrase,
+            drop_bottom_empty=bool(ts_phrase),
+        )
+        with st.expander("Preview prompt", expanded=False):
+            st.code(prompt_preview)
 
-                    # Save
-                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    if "cover" in dest:
-                        out_dir = Path("output/cover")
-                    else:
-                        out_dir = OUTPUT_PAGES
-                    out_dir.mkdir(parents=True, exist_ok=True)
-                    save_path = out_dir / f"studio_{ts}_final.png"
-                    final.save(save_path, dpi=(OUTPUT_DPI, OUTPUT_DPI))
+        if st.button("🎨 Genera", type="primary", key="c_btn",
+                     disabled=not subject or not _get_api_key()):
+            try:
+                with st.spinner(f"Generando {api['n']} variante/i…"):
+                    raws = _generate_with_refund(prompt_preview, **api)
+                niche_key = st.session_state.project.get("niche") or "studio"
+                _persist_and_render(raws, prompt_preview, pipe, phrase,
+                                    _slugify(niche_key), "Book" in dest)
+            except Exception as e:
+                st.error(f"Errore: {e}")
+        _render_results()
 
-                    # Store in session for display
-                    st.session_state["studio_last"] = {
-                        "path": str(save_path),
-                        "white_pct": white_pct,
-                        "gray_pixels": gray_pixels,
-                        "kdp_ok": kdp_ok,
-                    }
+    # ─── TAB 3: ADVANCED (raw prompt edit) ───────────────────────────────────
+    with tab_advanced:
+        st.subheader("Advanced — full prompt + tutte le toggles")
+        if "a_prompt" not in st.session_state:
+            st.session_state["a_prompt"] = MASTER_PROMPT_TEMPLATE.format(
+                simbolo_angolo="decorative corner ornament",
+                simbolo_lato="small thematic symbol",
+                soggetto_kawaii="(describe your subject here)",
+            )
+        prompt = st.text_area("Master prompt", height=320, key="a_prompt")
+        phrase = st.text_input("Frase satirica (opzionale)", max_chars=120, key="a_phrase")
+        api = _api_param_block("a")
+        pipe = _pipeline_block("a", default_inject=False)
+        out_tpl = st.text_input("Filename template",
+                                value="{niche}_{ts}_{slug}", key="a_tpl",
+                                help="placeholders: {niche} {ts} {slug}")
+        dest = st.radio("Destinazione",
+                        ["📚 Book Builder", "🖼 output/studio/", "🖼 output/cover/"],
+                        horizontal=True, key="a_dest")
+        if st.button("🎨 Genera", type="primary", key="a_btn",
+                     disabled=not prompt.strip() or not _get_api_key()):
+            try:
+                with st.spinner(f"Generando {api['n']} variante/i…"):
+                    raws = _generate_with_refund(prompt, **api)
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                niche_slug = _slugify(st.session_state.project.get("niche") or "studio")
+                slug = _slugify(phrase or "studio")
+                target = COVER_OUT_DIR if "cover" in dest else STUDIO_OUT_DIR
+                target.mkdir(parents=True, exist_ok=True)
+                results = []
+                for i, raw in enumerate(raws):
+                    img, qc = _run_pipeline(raw, phrase=phrase, **pipe)
+                    fname = (out_tpl.format(niche=niche_slug, ts=ts, slug=slug)
+                             + (f"_{i+1}" if len(raws) > 1 else "")
+                             + ".png")
+                    p = target / fname
+                    img.save(p, dpi=(OUTPUT_DPI, OUTPUT_DPI))
+                    results.append({"path": str(p), "prompt": prompt, **qc})
+                state["results"] = results
+                state["last_prompt"] = prompt
+                if "Book" in dest and results:
+                    _add_page("illustration", Path(results[0]["path"]),
+                              {"phrase": phrase, "subject": "studio_advanced"})
+            except Exception as e:
+                st.error(f"Errore: {e}")
+        _render_results()
 
-                    if "Book Builder" in dest:
-                        _add_page("illustration", save_path, {"phrase": phrase, "subject": "studio"})
-
-                except Exception as e:
-                    st.error(f"Errore: {e}")
-
-        # Show last result
-        last = st.session_state.get("studio_last")
-        if last:
-            thumb = _thumb(last["path"])
-            if thumb:
-                st.image(thumb, caption=Path(last["path"]).name, use_container_width=True)
-
-            # Quality metrics
-            st.markdown("**Quality Control**")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Pixel bianchi", f"{last['white_pct']:.1f}%")
-            c2.metric("Pixel grigi residui", f"{last['gray_pixels']:,}")
-            c3.metric("KDP Compliance", "✅ OK" if last["kdp_ok"] else "⚠️ Attenzione")
-
-            if last["kdp_ok"]:
-                st.success("✅ Immagine conforme agli standard KDP (100% B&N)")
+    # ─── TAB 4: COVER (delegates to cover_builder) ───────────────────────────
+    with tab_cover:
+        st.subheader("Cover Builder")
+        try:
+            import cover_builder
+            if hasattr(cover_builder, "render_cover_ui"):
+                cover_builder.render_cover_ui(_get_api_key, _check_image_quota,
+                                              _generate_with_refund, _run_pipeline)
             else:
-                st.warning(f"⚠️ Trovati {last['gray_pixels']:,} pixel grigi. Prova ad aumentare il threshold.")
-
-            with open(last["path"], "rb") as f:
-                st.download_button(
-                    "⬇️ Scarica PNG",
-                    data=f.read(),
-                    file_name=Path(last["path"]).name,
-                    mime="image/png",
-                )
+                st.info("`cover_builder.py` trovato ma manca `render_cover_ui()`.")
+        except ImportError:
+            st.info(
+                "Modulo `cover_builder.py` non disponibile. "
+                "Per ora usa la tab **Advanced** con destinazione `output/cover/` "
+                "e size `1536x1024`."
+            )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

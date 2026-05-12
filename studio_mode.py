@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-The Daily KDP Press — Studio Mode (Cover Generator)
-Interactive cover illustration generator with approve/regenerate/modify loop.
+DEPRECATED — use cover_builder.py and the in-app Studio Mode (Streamlit) instead.
 
-Cover specs:
-  - Full wrap: 3331×2551 px @ 300 DPI
-  - Fronte: illustrazione + titolo + autore
-  - Spine: titolo verticale
-  - Retro: descrizione + barcode placeholder
+This module computed an INCORRECT wrap size (3331×2551) for KDP paperback, did
+not produce a valid spine, lacked the back-cover barcode area, and had no SSRF
+protection on remote image fetches. It is kept only for historical reference.
 
-Usage:
-    python studio_mode.py
-    python studio_mode.py --skip-generate output/cover/cover_raw.png
+The current pipeline:
+  - cover composition  → cover_builder.py
+  - interactive UI     → app.py page_studio_mode (Streamlit "Studio Mode" tab)
+
+Running this module prints a deprecation warning and exits.
 """
 
 import argparse
@@ -206,27 +205,14 @@ def studio_loop(client: OpenAI | None, skip_path: str | None,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="The Daily KDP Press — Studio Mode")
-    parser.add_argument("--out-dir",       default="output/cover")
-    parser.add_argument("--skip-generate", metavar="IMAGE_PATH",
-                        help="Skip API — use existing raw cover image")
-    parser.add_argument("--no-text",       action="store_true",
-                        help="Skip text overlay (generate illustration only)")
-    args = parser.parse_args()
-
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    client = None if args.skip_generate else OpenAI()
-    with_text = not args.no_text
-
-    print(f"\n{'='*55}")
-    print(f"  The Daily KDP Press — Studio Mode")
-    print(f"  Book: {BOOK_TITLE}")
-    print(f"  Cover: {COVER_W}×{COVER_H} px @ {OUTPUT_DPI} DPI")
-    print(f"{'='*55}")
-
-    studio_loop(client, args.skip_generate, out_dir, with_text)
+    print(
+        "studio_mode.py is DEPRECATED.\n"
+        "  - Cover composition has moved to cover_builder.py (correct KDP wrap math + spine + barcode area).\n"
+        "  - Interactive UI has moved to the Streamlit app's 'Studio Mode' tab (run: streamlit run app.py).\n"
+        "  - This script will be removed in a future release.\n",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 if __name__ == "__main__":

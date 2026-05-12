@@ -128,7 +128,15 @@ def generate_image(prompt: str, client: OpenAI) -> Image.Image:
         img_bytes = base64.b64decode(item.b64_json)
     elif hasattr(item, "url") and item.url:
         import urllib.request
-        with urllib.request.urlopen(item.url) as r:
+        from urllib.parse import urlparse
+        parsed = urlparse(item.url)
+        if parsed.scheme != "https" or not parsed.hostname or not (
+            parsed.hostname.endswith(".openai.com")
+            or parsed.hostname.endswith(".oaiusercontent.com")
+            or parsed.hostname.endswith(".azure.com")
+        ):
+            raise RuntimeError(f"Refusing to fetch image from unexpected host: {parsed.hostname}")
+        with urllib.request.urlopen(item.url, timeout=30) as r:
             img_bytes = r.read()
     else:
         raise RuntimeError("OpenAI response: no b64_json or url found.")
@@ -153,7 +161,9 @@ def enforce_white_text_zone(img: Image.Image) -> Image.Image:
 def upscale_to_kdp(img: Image.Image) -> Image.Image:
     if img.size == (KDP_W, KDP_H):
         return img
-    return img.resize((KDP_W, KDP_H), Image.LANCZOS)
+    # BICUBIC: sharper edges than LANCZOS for binary line art that will be
+    # re-binarized post-upscale. Lower stroke-halo than NEAREST.
+    return img.resize((KDP_W, KDP_H), Image.BICUBIC)
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -269,15 +279,15 @@ def main() -> None:
         raw_img.save(raw_path)
         print(f"      → {raw_path}")
 
-    print(f"[2/4] Binarizing (threshold={args.threshold})…")
-    proc = binarize(raw_img, args.threshold)
+    print(f"[2/4] Upscaling to {KDP_W}×{KDP_H} px…")
+    kdp = upscale_to_kdp(raw_img)
+
+    print(f"[3/4] Binarizing (threshold={args.threshold})…")
+    proc = binarize(kdp, args.threshold)
     proc = enforce_white_text_zone(proc)
 
-    print(f"[3/4] Upscaling to {KDP_W}×{KDP_H} px…")
-    kdp = upscale_to_kdp(proc)
-
     print(f'[4/4] Injecting: "{args.phrase}"')
-    final = inject_text(kdp, args.phrase)
+    final = inject_text(proc, args.phrase)
 
     final_path = out_dir / f"{slug}_final.png"
     final.save(final_path, dpi=(OUTPUT_DPI, OUTPUT_DPI))

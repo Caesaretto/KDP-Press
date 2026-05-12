@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Ironic phrases for the Zodiaco Esaurito coloring book.
-2 phrases per sign, in Italian and English.
-Max 8 words each. Tone: affectionate sarcasm / gag gift.
+30 phrases total (12 signs × 2 + 6 signs × 1 extra) — matches the 30-illustration
+KDP target. Italian + English. Max 8 words each. Tone: affectionate sarcasm.
 """
 
 FRASI: dict[str, dict[str, list[str]]] = {
@@ -10,10 +10,12 @@ FRASI: dict[str, dict[str, list[str]]] = {
         "it": [
             "Sì, hai ragione. Come sempre.",
             "Rallenta. Gli altri esistono ancora.",
+            "No, non era una gara. Lo era.",
         ],
         "en": [
             "Yes, you're right. As always.",
             "Slow down. Others still exist.",
+            "No, it wasn't a race. It was.",
         ],
     },
     "toro": {
@@ -50,20 +52,24 @@ FRASI: dict[str, dict[str, list[str]]] = {
         "it": [
             "No, non tutti ti stanno guardando. Forse.",
             "Il pubblico è stanco. Siediti.",
+            "Bel monologo. Ora ascolta gli altri.",
         ],
         "en": [
             "No, not everyone's watching. Maybe.",
             "The audience is tired. Sit down.",
+            "Great speech. Now let others talk.",
         ],
     },
     "vergine": {
         "it": [
             "Non tutto è sbagliato. Solo il 94%.",
             "Lista completata. Rifai la lista.",
+            "L'ho corretto. Anche quello che andava bene.",
         ],
         "en": [
             "Not everything's wrong. Just 94%.",
             "List done. Redo the list.",
+            "Fixed it. Including what was fine.",
         ],
     },
     "bilancia": {
@@ -80,10 +86,12 @@ FRASI: dict[str, dict[str, list[str]]] = {
         "it": [
             "Stai ancora pensando a quella cosa del 2019?",
             "Perdona. Non ora, prima o poi.",
+            "Sì, l'ho notato. L'ho registrato.",
         ],
         "en": [
             "Still thinking about that 2019 thing?",
             "Forgive. Not now, eventually.",
+            "Yes, I noticed. It's filed away.",
         ],
     },
     "sagittario": {
@@ -100,10 +108,12 @@ FRASI: dict[str, dict[str, list[str]]] = {
         "it": [
             "Esci dal lavoro. È domenica.",
             "Rilassati. Ti prometto che non muori.",
+            "Le ferie esistono. Anche per te.",
         ],
         "en": [
             "Leave work. It's Sunday.",
             "Relax. I promise you won't die.",
+            "Vacations exist. Even for you.",
         ],
     },
     "acquario": {
@@ -120,10 +130,12 @@ FRASI: dict[str, dict[str, list[str]]] = {
         "it": [
             "Ok, ora torna coi piedi per terra e sii logico.",
             "Non è un sogno. È lunedì.",
+            "Le scadenze sono reali. Mi spiace.",
         ],
         "en": [
             "Ok, now be logical for once.",
             "It's not a dream. It's Monday.",
+            "Deadlines are real. Sorry.",
         ],
     },
 }

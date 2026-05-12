@@ -167,15 +167,80 @@ def make_black_page() -> Image.Image:
     return Image.new("RGB", (KDP_W, KDP_H), (0, 0, 0))
 
 
+def make_review_page(url: str = QR_PLACEHOLDER_URL) -> Image.Image:
+    """Back-matter 1: invite to leave an Amazon review."""
+    img = Image.new("RGB", (KDP_W, KDP_H), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    title_font = _load_font(95)
+    body_font = _load_font(60)
+    url_font = _load_font(45)
+
+    margin = 80
+    draw.rectangle(
+        [(margin, margin), (KDP_W - margin, KDP_H - margin)],
+        outline=(0, 0, 0), width=4,
+    )
+
+    y = int(KDP_H * 0.18)
+    _centered_text(draw, y, "Hai colorato fino in fondo?", title_font)
+    _centered_text(draw, y + 130, "Allora ti odiamo un po'.", title_font)
+
+    y2 = int(KDP_H * 0.42)
+    _centered_text(draw, y2, "Lascia una recensione su Amazon.", body_font)
+    _centered_text(draw, y2 + 90, "(Le stelline contano. Le parole anche.)", body_font)
+
+    _centered_text(draw, int(KDP_H * 0.62), "Sblocchi il Volume Premium Digitale", body_font)
+    _centered_text(draw, int(KDP_H * 0.62) + 90, "rispondendo all'email con lo screenshot.", body_font)
+
+    _centered_text(draw, int(KDP_H * 0.85), url, url_font, fill=(120, 120, 120))
+    return img
+
+
+def make_collection_page() -> Image.Image:
+    """Back-matter 2: cross-sell other volumes in the series."""
+    img = Image.new("RGB", (KDP_W, KDP_H), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    title_font = _load_font(100)
+    sub_font = _load_font(65)
+    item_font = _load_font(55)
+
+    margin = 80
+    draw.rectangle(
+        [(margin, margin), (KDP_W - margin, KDP_H - margin)],
+        outline=(0, 0, 0), width=4,
+    )
+
+    _centered_text(draw, int(KDP_H * 0.15), "Altri libri", title_font)
+    _centered_text(draw, int(KDP_H * 0.15) + 130, "per chi sopravvive", title_font)
+
+    items = [
+        "Ufficio Esaurito",
+        "Mamma Esaurita",
+        "Insegnante Esaurita",
+        "True Crime per dormire",
+        "Astrologia Tossica Vol. 2",
+    ]
+    y0 = int(KDP_H * 0.45)
+    for i, item in enumerate(items):
+        _centered_text(draw, y0 + i * 110, f"— {item}", item_font)
+
+    _centered_text(draw, int(KDP_H * 0.88), "thedailyburnoutpress.com", sub_font, fill=(120, 120, 120))
+    return img
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
 PAGE_BUILDERS = {
-    "qr":           (make_qr_page,       "01_qr_code.png"),
+    "qr":           (make_qr_page,        "01_qr_code.png"),
     "frontespizio": (make_frontespizio,   "02_frontespizio.png"),
     "test_colors":  (make_test_colors,    "03_test_colors.png"),
     "black":        (make_black_page,     "black_separator.png"),
+    "review":       (make_review_page,    "98_review.png"),
+    "collection":   (make_collection_page, "99_collection.png"),
 }
 
 
