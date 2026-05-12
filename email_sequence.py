@@ -1,7 +1,12 @@
 import json
+import os
+import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Optional
+
+BREVO_TIMEOUT = 15  # seconds — bounded HTTP wait
+BREVO_BASE = "https://api.brevo.com/v3"
 
 FOOTER = """
 <div style="margin-top:40px;padding-top:20px;border-top:1px solid #2a2a3e;text-align:center;font-size:12px;color:#666;">
@@ -141,27 +146,37 @@ SEQUENCE = [
 ]
 
 
-def _brevo_request(api_key: str, endpoint: str, payload: dict) -> tuple[int, dict]:
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        f"https://api.brevo.com/v3/{endpoint}",
-        data=data,
-        headers={
-            "accept": "application/json",
-            "content-type": "application/json",
-            "api-key": api_key,
-        },
-        method="POST",
-    )
+def _brevo_request(
+    api_key: str,
+    endpoint: str,
+    payload: Optional[dict] = None,
+    method: str = "POST",
+) -> tuple[int, dict]:
+    url = f"{BREVO_BASE}/{endpoint.lstrip('/')}"
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+    }
+    data: Optional[bytes] = None
+    if payload is not None:
+        headers["content-type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
+        with urllib.request.urlopen(req, timeout=BREVO_TIMEOUT) as resp:
+            body = resp.read().decode("utf-8")
+            try:
+                return resp.status, json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                return resp.status, {"raw": body}
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
         try:
             return e.code, json.loads(body)
         except Exception:
             return e.code, {"error": body}
+    except urllib.error.URLError as e:
+        return 0, {"error": f"network: {e.reason}"}
 
 
 def create_automation(
@@ -205,6 +220,83 @@ def _html_to_plain(html: str) -> str:
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+# ── Production helpers ─────────────────────────────────────────────────────────
+
+def get_account(api_key: str) -> tuple[int, dict]:
+    """Smoke-test endpoint — returns plan + sender email if the key is valid."""
+    return _brevo_request(api_key, "account", method="GET")
+
+
+def get_list(api_key: str, list_id: int) -> tuple[int, dict]:
+    """Verify a list exists and return its name + totalSubscribers."""
+    return _brevo_request(api_key, f"contacts/lists/{int(list_id)}", method="GET")
+
+
+def add_contact_doi(
+    api_key: str,
+    email: str,
+    list_id: int,
+    template_id: int,
+    redirect_url: str,
+    attributes: Optional[dict] = None,
+) -> tuple[int, dict]:
+    """Enroll a contact via Brevo Double Opt-In flow.
+
+    Sends the confirmation email using `template_id`. After the user clicks the
+    link in the DOI email, Brevo adds them to `list_id` and redirects to
+    `redirect_url`.
+    """
+    payload = {
+        "email": email,
+        "includeListIds": [int(list_id)],
+        "templateId": int(template_id),
+        "redirectionUrl": redirect_url,
+    }
+    if attributes:
+        payload["attributes"] = attributes
+    return _brevo_request(api_key, "contacts/doubleOptinConfirmation", payload)
+
+
+def send_template_email(
+    api_key: str,
+    to_email: str,
+    template_id: int,
+    params: Optional[dict] = None,
+    sender_email: Optional[str] = None,
+    sender_name: str = "The Daily Burnout Press",
+) -> tuple[int, dict]:
+    """Send a single transactional email rendered from a Brevo template."""
+    payload: dict = {
+        "to": [{"email": to_email}],
+        "templateId": int(template_id),
+    }
+    if params:
+        payload["params"] = params
+    if sender_email:
+        payload["sender"] = {"email": sender_email, "name": sender_name}
+    return _brevo_request(api_key, "smtp/email", payload)
+
+
+def trigger_soap_opera(
+    api_key: str,
+    email: str,
+    properties: Optional[dict] = None,
+    event_name: str = "soap_opera_enroll",
+) -> tuple[int, dict]:
+    """Fire a Brevo Marketing event. Configure a "Marketing Automation" in
+    the Brevo dashboard listening for `event_name` to drive the 5-day flow:
+    D1 welcome+lead-magnet, D2 burnout story, D3 review request,
+    D4 PDF bundle pitch, D5 Printify merch pitch.
+    """
+    payload: dict = {
+        "event_name": event_name,
+        "identifiers": {"email_id": email},
+    }
+    if properties:
+        payload["event_properties"] = properties
+    return _brevo_request(api_key, "events", payload)
 
 
 if __name__ == "__main__":
