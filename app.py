@@ -97,7 +97,7 @@ def _init_session() -> None:
 
     defaults = {
         "qr_url":      "https://thedailyburnoutpress.com/bonus",
-        "nav_page":    "🏠 Dashboard",
+        "nav_page":    "✨ Nuovo Libro",
         "gen_log":     "",
     }
     for k, v in defaults.items():
@@ -373,7 +373,7 @@ def page_dashboard() -> None:
                 ):
                     st.session_state.project["niche"] = key
                     _save_project()
-                    st.session_state.nav_page = "📚 Book Builder"
+                    st.session_state.nav_page = "🛠 Book Builder"
                     st.rerun()
 
     # Recent projects
@@ -1444,6 +1444,205 @@ def page_marketing() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PAGE: NUOVO LIBRO (factory end-to-end)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def page_new_book() -> None:
+    import orchestrator
+
+    st.title("✨ Nuovo Libro")
+    st.caption(
+        "Genera un libro da colorare completo: frasi originali + 30 illustrazioni "
+        "+ PDF pronto da scaricare. Tempo stimato: ~10 minuti. Costo OpenAI stimato: ~$6."
+    )
+
+    if not _get_api_key():
+        st.error("⚠️ Servizio AI non disponibile. Contatta l'amministratore.")
+        return
+
+    with st.form("new_book", clear_on_submit=False):
+        c1, c2 = st.columns([2, 1])
+        title = c1.text_input(
+            "Titolo del libro",
+            value="",
+            placeholder="Es. Zodiacale Esaurito",
+            max_chars=80,
+        )
+        count = c2.number_input(
+            "Numero illustrazioni", min_value=6, max_value=60, value=30, step=2,
+            help="Quante pagine illustrate generare (consigliato 30).",
+        )
+
+        c3, c4, c5 = st.columns(3)
+        niche = c3.selectbox(
+            "Nicchia",
+            options=["astrology"],
+            format_func=lambda k: {"astrology": "Zodiacale"}.get(k, k),
+            help="Per ora solo Zodiacale. Altre nicchie in arrivo (Fase 2).",
+        )
+        tone = c4.selectbox(
+            "Tono",
+            options=[
+                "ironico e sarcastico",
+                "ironico e dolceamaro",
+                "ironico e sognante",
+                "satirico e tagliente",
+            ],
+        )
+        lang = c5.selectbox("Lingua", options=["it", "en"])
+
+        brief = st.text_area(
+            "Brief opzionale per la AI (cosa caratterizza questo libro)",
+            value="",
+            placeholder="Es. Per donne 30-45 anni stressate ma autoironiche, "
+                        "tono Mafalda incontra oroscopo. Niente cliché su Lunedì.",
+            max_chars=400,
+            height=80,
+        )
+
+        submitted = st.form_submit_button(
+            "✨ Genera Libro Completo",
+            type="primary",
+            use_container_width=True,
+            disabled=not _get_api_key(),
+        )
+
+    if not submitted:
+        return
+
+    if not title.strip():
+        st.error("Il titolo è obbligatorio.")
+        return
+
+    # ── Run the factory pipeline with live progress ──────────────────────────
+    progress_bar = st.progress(0, text="Inizializzazione…")
+    status_box   = st.empty()
+    cost_box     = st.empty()
+
+    def on_progress(msg: str, pct: float) -> None:
+        progress_bar.progress(min(pct, 1.0), text=msg)
+
+    try:
+        cost_box.caption("💰 Costo in corso di accumulo…")
+        from openai import OpenAI
+        client = OpenAI(api_key=_get_api_key())
+        book_dir = orchestrator.generate_book(
+            title=title.strip(),
+            niche=niche,
+            tone=tone,
+            count=int(count),
+            lang=lang,
+            brief=brief.strip() or None,
+            progress=on_progress,
+            client=client,
+        )
+    except Exception as e:
+        progress_bar.empty()
+        st.error(f"❌ Generazione fallita: {e}")
+        return
+
+    progress_bar.empty()
+    status_box.empty()
+    cost_box.empty()
+
+    # ── Display result ───────────────────────────────────────────────────────
+    import json as _json
+    book_path = Path(book_dir)
+    meta = _json.loads((book_path / "book.json").read_text())
+
+    st.success(f"✓ Libro completato: {meta['count_generated']}/{meta['count_requested']} pagine.")
+    if meta.get("errors"):
+        with st.expander(f"⚠️ {len(meta['errors'])} pagine con errori"):
+            for err in meta["errors"]:
+                st.caption(f"Pagina {err['page']} ({err['sign']}): {err['error']}")
+
+    c_a, c_b = st.columns([1, 2])
+    with c_a:
+        thumb = book_path / "thumbnail.png"
+        if thumb.exists():
+            st.image(str(thumb), use_container_width=True)
+    with c_b:
+        st.markdown(f"**Titolo:** {meta['title']}")
+        st.markdown(f"**Pagine generate:** {meta['count_generated']}")
+        st.markdown(f"**Costo stimato:** ${meta['estimated_cost_usd']}")
+        st.markdown(f"**Creato:** {meta['created_at']}")
+
+        pdf_path = book_path / (meta.get("pdf_path") or "")
+        if pdf_path.exists():
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    "📥 Scarica PDF",
+                    f.read(),
+                    file_name=pdf_path.name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                )
+
+    st.info("Il libro è ora visibile nella sezione **📚 Libreria**.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: LIBRERIA (lista libri generati)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def page_library() -> None:
+    import orchestrator
+
+    st.title("📚 Libreria")
+    st.caption("Tutti i libri generati. Più recenti in alto.")
+
+    books = orchestrator.list_books()
+    if not books:
+        st.info("Nessun libro generato ancora. Vai su **✨ Nuovo Libro** per crearne uno.")
+        return
+
+    for book in books:
+        st.divider()
+        col_t, col_d = st.columns([1, 3])
+        with col_t:
+            if book.get("_thumbnail"):
+                st.image(book["_thumbnail"], use_container_width=True)
+            else:
+                st.markdown("*(no preview)*")
+        with col_d:
+            st.markdown(f"### {book.get('title', '(senza titolo)')}")
+            cm1, cm2, cm3 = st.columns(3)
+            cm1.metric("Pagine", f"{book.get('count_generated', 0)}/{book.get('count_requested', 0)}")
+            cm2.metric("Costo", f"${book.get('estimated_cost_usd', 0):.2f}")
+            cm3.metric("Creato", book.get('created_at', '')[:10])
+
+            niche_label = {"astrology": "Zodiacale"}.get(book.get("niche"), book.get("niche", ""))
+            st.caption(f"**Nicchia:** {niche_label} · **Tono:** {book.get('tone', '')} · **Lingua:** {book.get('lang', '')}")
+            if book.get("brief"):
+                st.caption(f"*Brief: {book['brief']}*")
+            if book.get("errors"):
+                st.caption(f"⚠️ {len(book['errors'])} errori durante la generazione")
+
+            c_a, c_b = st.columns(2)
+            if book.get("_pdf_path") and Path(book["_pdf_path"]).exists():
+                with open(book["_pdf_path"], "rb") as f:
+                    c_a.download_button(
+                        "📥 Scarica PDF",
+                        f.read(),
+                        file_name=Path(book["_pdf_path"]).name,
+                        mime="application/pdf",
+                        key=f"dl_pdf_{book.get('slug', '')}_{book.get('created_at', '')}",
+                        use_container_width=True,
+                    )
+            else:
+                c_a.caption("(PDF non disponibile)")
+            if c_b.button(
+                "🗑 Elimina",
+                key=f"del_book_{book.get('slug', '')}_{book.get('created_at', '')}",
+                use_container_width=True,
+            ):
+                import shutil
+                shutil.rmtree(book["_book_dir"], ignore_errors=True)
+                st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR + MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1490,12 +1689,21 @@ def main() -> None:
         st.markdown("## 📚 KDP Publishing House")
         st.divider()
 
+        nav_options = [
+            "✨ Nuovo Libro",
+            "📚 Libreria",
+            "🏠 Dashboard",
+            "🛠 Book Builder",
+            "🎨 Studio Mode",
+            "📈 Marketing",
+        ]
+        # Migrate stale nav_page values (legacy "📚 Book Builder")
+        if st.session_state.nav_page not in nav_options:
+            st.session_state.nav_page = "✨ Nuovo Libro"
         page = st.radio(
             "Navigazione",
-            ["🏠 Dashboard", "📚 Book Builder", "🎨 Studio Mode", "📈 Marketing"],
-            index=["🏠 Dashboard", "📚 Book Builder", "🎨 Studio Mode", "📈 Marketing"].index(
-                st.session_state.nav_page
-            ),
+            nav_options,
+            index=nav_options.index(st.session_state.nav_page),
             key="nav_radio",
         )
         st.session_state.nav_page = page
@@ -1512,16 +1720,20 @@ def main() -> None:
         if st.button("🗑 Reset Progetto", use_container_width=True):
             st.session_state.project = {"niche": None, "pages": []}
             _save_project()
-            st.session_state.nav_page = "🏠 Dashboard"
+            st.session_state.nav_page = "✨ Nuovo Libro"
             st.rerun()
 
         st.divider()
         st.caption("The Daily Burnout Press\nv1.0 — 2026")
 
     # Route to page
-    if page == "🏠 Dashboard":
+    if page == "✨ Nuovo Libro":
+        page_new_book()
+    elif page == "📚 Libreria":
+        page_library()
+    elif page == "🏠 Dashboard":
         page_dashboard()
-    elif page == "📚 Book Builder":
+    elif page == "🛠 Book Builder":
         page_book_builder()
     elif page == "🎨 Studio Mode":
         page_studio_mode()
