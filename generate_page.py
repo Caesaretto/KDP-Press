@@ -382,21 +382,34 @@ def outline_text(img: Image.Image, phrase: str) -> Image.Image:
     blk_h  = line_h * len(best_lines) + best_gap * (len(best_lines) - 1)
     y_start = zone_top + (zone_h - blk_h) // 2
 
-    # ── LOCAL WIPE ────────────────────────────────────────────────────────────
-    # Wipe SOLO il bounding-box reale del blocco testo + padding, NON l'intera
-    # banda inferiore. Così l'illustrazione AI sopravvive accanto al testo
-    # (cloud, scatter, bordo decorativo continuano a essere visibili).
+    # ── SOFT FRAMED LABEL ─────────────────────────────────────────────────────
+    # Invece di un wipe rettangolare "appiccicato", disegniamo un label morbido
+    # (rounded rectangle bianco con outline nero sottile) attorno al testo.
+    # Visivamente integra la frase nella composizione come una cornice
+    # decorativa, non come un buco bianco.
     max_lw = max(
         draw.textbbox((0, 0), ln, font=font, stroke_width=stroke)[2]
         for ln in best_lines
     )
-    h_pad = stroke + int(line_h * 0.3)   # padding orizzontale attorno al testo
-    v_pad = stroke + int(line_h * 0.25)  # padding verticale
-    text_x1 = (w - max_lw) // 2 - h_pad
-    text_y1 = y_start - v_pad
-    text_x2 = (w + max_lw) // 2 + h_pad
-    text_y2 = y_start + blk_h + v_pad
-    draw.rectangle([(text_x1, text_y1), (text_x2, text_y2)], fill=(255, 255, 255))
+    h_pad = stroke + int(line_h * 0.55)  # padding orizzontale generoso
+    v_pad = stroke + int(line_h * 0.45)  # padding verticale generoso
+    frame_x1 = (w - max_lw) // 2 - h_pad
+    frame_y1 = y_start - v_pad
+    frame_x2 = (w + max_lw) // 2 + h_pad
+    frame_y2 = y_start + blk_h + v_pad
+
+    frame_w_px = frame_x2 - frame_x1
+    frame_h_px = frame_y2 - frame_y1
+    radius     = int(min(frame_w_px, frame_h_px) * 0.12)
+    outline_w  = max(5, stroke // 2)
+
+    draw.rounded_rectangle(
+        [(frame_x1, frame_y1), (frame_x2, frame_y2)],
+        radius=radius,
+        fill=(255, 255, 255),
+        outline=(0, 0, 0),
+        width=outline_w,
+    )
 
     # ── OUTLINE LETTERS ───────────────────────────────────────────────────────
     y = y_start
