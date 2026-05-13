@@ -188,11 +188,12 @@ def _generate_illustration(
     soggetto_kawaii: str,
     phrase: str,
     *,
-    glyph_unicode: str = "★",
+    glyph_description: str = "a small stylized 5-pointed star",
     thematic_prop: str = "a small thematic prop",
     scatter_elements: str = "small 5-pointed stars, tiny hearts, small swirls",
     threshold: int = BINARIZE_THR,
-    # Legacy v1 kwargs kept for backward-compat with older callers (ignored by v2 template)
+    # Legacy v1 kwargs (ignored by v3 template)
+    glyph_unicode: str | None = None,
     simbolo_angolo: str | None = None,
     simbolo_lato: str | None = None,
 ) -> Path:
@@ -200,7 +201,7 @@ def _generate_illustration(
 
     client = OpenAI(api_key=_get_api_key() or None)
     prompt = MASTER_PROMPT_TEMPLATE.format(
-        glyph_unicode=glyph_unicode,
+        glyph_description=glyph_description,
         soggetto_kawaii=soggetto_kawaii,
         thematic_prop=thematic_prop,
         scatter_elements=scatter_elements,
@@ -228,7 +229,7 @@ def _generate_zodiac_illustration(sign: str, phrase: str, idx: int,
     from openai import OpenAI
     cfg = ZODIAC_CONFIG[sign]
     prompt = MASTER_PROMPT_TEMPLATE.format(
-        glyph_unicode=cfg.get("glyph_unicode", "★"),
+        glyph_description=cfg.get("glyph_description", "a small stylized 5-pointed star"),
         soggetto_kawaii=cfg["soggetto_kawaii"],
         thematic_prop=cfg.get("thematic_prop", "a small thematic prop"),
         scatter_elements=cfg.get(
@@ -468,7 +469,7 @@ def page_book_builder() -> None:
                     "key": sign,
                     "label": ZODIAC_CONFIG[sign]["en_name"],
                     **{k: ZODIAC_CONFIG[sign].get(k) for k in (
-                        "glyph_unicode", "soggetto_kawaii", "thematic_prop", "scatter_elements"
+                        "glyph_description", "soggetto_kawaii", "thematic_prop", "scatter_elements"
                     ) if ZODIAC_CONFIG[sign].get(k) is not None},
                 }
                 for sign in SIGN_ORDER
@@ -505,7 +506,9 @@ def page_book_builder() -> None:
                 try:
                     path = _generate_illustration(
                         soggetto_kawaii=subject_cfg["soggetto_kawaii"],
-                        glyph_unicode=subject_cfg.get("glyph_unicode", "★"),
+                        glyph_description=subject_cfg.get(
+                            "glyph_description", "a small stylized 5-pointed star"
+                        ),
                         thematic_prop=subject_cfg.get(
                             "thematic_prop", "a small thematic prop"
                         ),
@@ -1226,7 +1229,7 @@ def page_studio_mode() -> None:
         st.subheader("Advanced — full prompt + tutte le toggles")
         if "a_prompt" not in st.session_state:
             st.session_state["a_prompt"] = MASTER_PROMPT_TEMPLATE.format(
-                glyph_unicode="★",
+                glyph_description="a small stylized 5-pointed star",
                 soggetto_kawaii="(describe your subject here)",
                 thematic_prop="(describe a thematic prop near the subject)",
                 scatter_elements="small 5-pointed stars, tiny hearts, small swirls",

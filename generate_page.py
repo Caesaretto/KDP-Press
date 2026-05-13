@@ -52,7 +52,7 @@ FONT_CANDIDATES = [
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MASTER PROMPT TEMPLATE v2 — kawaii tarot-card editorial style
-# Parameters: {soggetto_kawaii}, {glyph_unicode}, {thematic_prop}, {scatter_elements}
+# Parameters: {soggetto_kawaii}, {glyph_description}, {thematic_prop}, {scatter_elements}
 # Synthesis di 3 agenti specializzati (visual analysis + prompt engineering + arch).
 # Riferimenti: refs/ref_01_aquarius.jpg, refs/ref_02_pisces.jpg
 # ══════════════════════════════════════════════════════════════════════════════
@@ -74,7 +74,7 @@ thick OUTER frame + thinner INNER frame parallel, ~15 pixels apart, both \
 running continuously around the entire page perimeter, corners chamfered \
 at 45 degrees.
 
-(2) THE ASTROLOGICAL GLYPH {glyph_unicode} APPEARS IN MINIMUM 9 PLACES:
+(2) THE ASTROLOGICAL GLYPH {glyph_description} APPEARS IN MINIMUM 9 PLACES:
     - One in each of the 4 corner clusters (4 total)
     - One or two on each of the 4 sides between corners (4 to 8 total)
     - One drawn directly on the main character's body as a visible decorative \
@@ -108,7 +108,7 @@ drawn ~15 px inside, same chamfered corners.
 Each cluster contains:
   - 1 large 5-pointed star (≈100 px equivalent diameter) positioned in the \
     corner space, overlapping both inner and outer frame lines
-  - 1 rendition of the glyph {glyph_unicode} (medium ~80 px) placed adjacent \
+  - 1 rendition of the glyph {glyph_description} (medium ~80 px) placed adjacent \
     to the large star
   - 2 or 3 small satellite 5-pointed stars (~40 px) arranged organically \
     around the cluster
@@ -116,7 +116,7 @@ The cluster visually "breaks" the rectangle by crossing both frame lines.
 
 4 SIDE RUNS (between corners on each of the 4 sides):
   - TOP side run: alternating medium 5-pointed stars (3 to 4 of them, ~60 px) \
-    and glyphs {glyph_unicode} (1 to 2, ~60 px), organic spacing
+    and glyphs {glyph_description} (1 to 2, ~60 px), organic spacing
   - BOTTOM side run: SAME PATTERN — 3 to 4 stars + 1 to 2 glyphs, organic \
     spacing. NOT empty, NOT simplified. As ornate as the top.
   - LEFT side run (vertical between top-left and bottom-left corners): \
@@ -142,7 +142,7 @@ Body: rounded soft shapes throughout, no sharp realistic anatomy.
 
 Linework: medium-thick uniform black stroke (same weight as the border).
 
-ZODIAC MARK on character: small rendition of glyph {glyph_unicode} \
+ZODIAC MARK on character: small rendition of glyph {glyph_description} \
 (~8-12% of character body height) drawn on a clearly visible body part as \
 a decorative tattoo/marking. Hollow outline.
 
@@ -176,7 +176,7 @@ NOT minimalist, NOT sparse, NOT a child's first coloring sheet.
 2. Border is on ALL FOUR sides, equally ornate, with corner clusters and \
    side runs as specified above. The page MUST NOT have a border that is \
    only top+bottom with empty left+right sides.
-3. The glyph {glyph_unicode} is visible in minimum 9 places (4 corners + \
+3. The glyph {glyph_description} is visible in minimum 9 places (4 corners + \
    4-8 sides + 1 on character).
 4. Only two colors: pure black #000000 (lines) and pure white #FFFFFF \
    (everything else). No grays, no halftones, no shading, no gradients, \
@@ -194,18 +194,21 @@ NOT minimalist, NOT sparse, NOT a child's first coloring sheet.
 # PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
+_DEFAULT_GLYPH_DESCRIPTION = "a small stylized 5-pointed star"
+
+
 def build_prompt(sign: str) -> str:
     key  = _ALIASES.get(sign, sign)
     data = ZODIAC_CONFIG.get(key)
     if data is None:
         data = {
-            "glyph_unicode":    "★",
-            "soggetto_kawaii":  f"one adorable kawaii {sign} character with big round eyes and rosy cheeks",
-            "thematic_prop":    f"a small {sign}-themed prop",
-            "scatter_elements": "small 5-pointed stars, tiny hearts, small swirls",
+            "glyph_description": _DEFAULT_GLYPH_DESCRIPTION,
+            "soggetto_kawaii":   f"one adorable kawaii {sign} character with big round eyes and rosy cheeks",
+            "thematic_prop":     f"a small {sign}-themed prop",
+            "scatter_elements":  "small 5-pointed stars, tiny hearts, small swirls",
         }
     return MASTER_PROMPT_TEMPLATE.format(
-        glyph_unicode=data.get("glyph_unicode", "★"),
+        glyph_description=data.get("glyph_description", _DEFAULT_GLYPH_DESCRIPTION),
         soggetto_kawaii=data["soggetto_kawaii"],
         thematic_prop=data.get("thematic_prop", "a small thematic prop"),
         scatter_elements=data.get(
