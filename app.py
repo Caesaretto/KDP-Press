@@ -140,48 +140,32 @@ def _get_api_key() -> str:
     return os.environ.get("OPENAI_API_KEY", "").strip()
 
 
-DAILY_IMAGE_CAP = int(os.environ.get("DAILY_IMAGE_CAP", "50"))
-QUOTA_FILE = OUTPUT_BASE / ".quota.json"
+import quota as _quota
+DAILY_IMAGE_CAP = _quota.DEFAULT_DAILY_CAP
+QUOTA_FILE = _quota.QUOTA_FILE
 
 
 def _load_quota() -> dict:
-    if not QUOTA_FILE.exists():
-        return {}
-    try:
-        return json.loads(QUOTA_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    """Backward-compat wrapper — returns the new single-day schema."""
+    return _quota.load()
 
 
 def _save_quota(data: dict) -> None:
-    QUOTA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    QUOTA_FILE.write_text(json.dumps(data), encoding="utf-8")
+    """Backward-compat wrapper — writes via the unified quota module."""
+    _quota.save(data)
 
 
 def _check_image_quota() -> None:
-    """Enforce a daily cap on AI image generations, persisted in output/.quota.json
-    so refresh / new tabs can't bypass it. Raises a Streamlit error and halts
-    execution when exceeded.
-    """
-    today = datetime.now().date().isoformat()
-    quota = _load_quota()
-    count = int(quota.get(today, 0))
-    if count >= DAILY_IMAGE_CAP:
+    """Enforce a daily cap on AI image generations. Halts the Streamlit
+    script when exceeded. Single source of truth is `quota.consume_one()`."""
+    if not _quota.consume_one(cap=DAILY_IMAGE_CAP):
         st.error(
             f"Quota giornaliera raggiunta ({DAILY_IMAGE_CAP} immagini). "
             f"Riprova domani o aumenta DAILY_IMAGE_CAP nelle env vars."
         )
         st.stop()
-    quota[today] = count + 1
-    # Keep only the last 7 days of history
-    keys = sorted(quota.keys())
-    if len(keys) > 7:
-        for k in keys[:-7]:
-            quota.pop(k, None)
-    _save_quota(quota)
-    # Mirror the count in session_state for live UI display
-    st.session_state["img_quota_date"] = today
-    st.session_state["img_quota_count"] = count + 1
+    st.session_state["img_quota_date"]  = datetime.now().date().isoformat()
+    st.session_state["img_quota_count"] = _quota.used_today()
 
 
 def _generate_illustration(
@@ -761,11 +745,8 @@ def _estimate_cost(model: str, quality: str, size: str, n: int) -> float:
 
 def _refund_quota_slot() -> None:
     """Decrement today's persisted quota by 1 (after a failed API call)."""
-    today = datetime.now().date().isoformat()
-    quota = _load_quota()
-    quota[today] = max(0, int(quota.get(today, 0)) - 1)
-    _save_quota(quota)
-    st.session_state["img_quota_count"] = max(0, st.session_state.get("img_quota_count", 0) - 1)
+    _quota.refund_one()
+    st.session_state["img_quota_count"] = _quota.used_today()
 
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
@@ -1447,6 +1428,32 @@ def page_marketing() -> None:
 # PAGE: NUOVO LIBRO (factory end-to-end)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _humanize_error(exc: Exception) -> str:
+    """Map common technical exceptions to plain-Italian user messages.
+    Stacktrace details vanno nei log server, NON sull'UI della cugina."""
+    msg = str(exc).lower()
+    if "rate limit" in msg or "429" in msg:
+        return ("Il servizio AI sta avendo troppe richieste in questo momento. "
+                "Aspetta qualche minuto e riprova.")
+    if "401" in msg or "authentication" in msg or "invalid api key" in msg:
+        return ("Problema di autenticazione con il servizio AI. "
+                "Contatta l'amministratore.")
+    if "quota" in msg or "insufficient_quota" in msg or "billing" in msg:
+        return ("Credito OpenAI esaurito o problema di fatturazione. "
+                "Contatta l'amministratore.")
+    if "content_policy" in msg or "moderation" in msg:
+        return ("Il contenuto richiesto è stato rifiutato dal filtro di "
+                "sicurezza AI. Modifica il brief e riprova.")
+    if "timeout" in msg or "timed out" in msg:
+        return ("Il servizio AI ha impiegato troppo tempo. Riprova tra qualche minuto.")
+    if "no space" in msg or "enospc" in msg:
+        return ("Spazio disco esaurito sul server. Contatta l'amministratore.")
+    if "connection" in msg:
+        return "Problema di connessione al servizio AI. Riprova tra poco."
+    # Generic fallback — short, no stacktrace
+    return "Si è verificato un problema durante la generazione. Riprova o contatta l'amministratore."
+
+
 def page_new_book() -> None:
     import orchestrator
 
@@ -1458,6 +1465,14 @@ def page_new_book() -> None:
 
     if not _get_api_key():
         st.error("⚠️ Servizio AI non disponibile. Contatta l'amministratore.")
+        return
+
+    # Lock against double-submit (cousin clicking twice fast)
+    if st.session_state.get("book_generating"):
+        st.warning(
+            "⏳ Generazione in corso. Aspetta che termini prima di lanciarne "
+            "un'altra. Non chiudere la pagina."
+        )
         return
 
     with st.form("new_book", clear_on_submit=False):
@@ -1522,10 +1537,12 @@ def page_new_book() -> None:
     def on_progress(msg: str, pct: float) -> None:
         progress_bar.progress(min(pct, 1.0), text=msg)
 
+    st.session_state["book_generating"] = True
     try:
         cost_box.caption("💰 Costo in corso di accumulo…")
         from openai import OpenAI
-        client = OpenAI(api_key=_get_api_key())
+        # timeout=120 e max_retries=0 — il retry custom è nell'orchestrator
+        client = OpenAI(api_key=_get_api_key(), timeout=120.0, max_retries=0)
         book_dir = orchestrator.generate_book(
             title=title.strip(),
             niche=niche,
@@ -1537,9 +1554,15 @@ def page_new_book() -> None:
             client=client,
         )
     except Exception as e:
+        # Log full trace server-side, mostra messaggio italiano all'utente
+        import logging
+        logging.exception("Book generation failed")
         progress_bar.empty()
-        st.error(f"❌ Generazione fallita: {e}")
+        st.error(f"❌ {_humanize_error(e)}")
+        st.session_state["book_generating"] = False
         return
+    finally:
+        st.session_state["book_generating"] = False
 
     progress_bar.empty()
     status_box.empty()
@@ -1567,17 +1590,23 @@ def page_new_book() -> None:
         st.markdown(f"**Costo stimato:** ${meta['estimated_cost_usd']}")
         st.markdown(f"**Creato:** {meta['created_at']}")
 
-        pdf_path = book_path / (meta.get("pdf_path") or "")
-        if pdf_path.exists():
-            with open(pdf_path, "rb") as f:
-                st.download_button(
-                    "📥 Scarica PDF",
-                    f.read(),
-                    file_name=pdf_path.name,
-                    mime="application/pdf",
-                    use_container_width=True,
-                    type="primary",
-                )
+        pdf_rel = meta.get("pdf_path")
+        if pdf_rel:
+            pdf_path = book_path / pdf_rel
+            if pdf_path.is_file():
+                with open(pdf_path, "rb") as f:
+                    st.download_button(
+                        "📥 Scarica PDF",
+                        f.read(),
+                        file_name=pdf_path.name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                    )
+            else:
+                st.warning("PDF non disponibile (assembly fallita). Le pagine singole sono comunque salvate.")
+        else:
+            st.warning("PDF non disponibile (assembly fallita). Le pagine singole sono comunque salvate.")
 
     st.info("Il libro è ora visibile nella sezione **📚 Libreria**.")
 
@@ -1620,26 +1649,37 @@ def page_library() -> None:
                 st.caption(f"⚠️ {len(book['errors'])} errori durante la generazione")
 
             c_a, c_b = st.columns(2)
-            if book.get("_pdf_path") and Path(book["_pdf_path"]).exists():
+            # Unique key per book using full book_dir basename (resolves
+            # collisions if two books share slug+created_at)
+            book_key = Path(book["_book_dir"]).name
+            if book.get("_pdf_path") and Path(book["_pdf_path"]).is_file():
                 with open(book["_pdf_path"], "rb") as f:
                     c_a.download_button(
                         "📥 Scarica PDF",
                         f.read(),
                         file_name=Path(book["_pdf_path"]).name,
                         mime="application/pdf",
-                        key=f"dl_pdf_{book.get('slug', '')}_{book.get('created_at', '')}",
+                        key=f"dl_pdf_{book_key}",
                         use_container_width=True,
                     )
             else:
                 c_a.caption("(PDF non disponibile)")
             if c_b.button(
                 "🗑 Elimina",
-                key=f"del_book_{book.get('slug', '')}_{book.get('created_at', '')}",
+                key=f"del_book_{book_key}",
                 use_container_width=True,
             ):
                 import shutil
-                shutil.rmtree(book["_book_dir"], ignore_errors=True)
-                st.rerun()
+                # SECURITY: ensure path is strictly inside BOOKS_DIR before rmtree
+                import orchestrator as _orch
+                target = Path(book["_book_dir"]).resolve()
+                books_root = _orch.BOOKS_DIR.resolve()
+                try:
+                    target.relative_to(books_root)  # raises if outside
+                    shutil.rmtree(target, ignore_errors=True)
+                    st.rerun()
+                except ValueError:
+                    st.error("Operazione non consentita.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

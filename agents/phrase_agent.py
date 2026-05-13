@@ -147,6 +147,10 @@ def generate_phrases(
             brief_block=brief_block,
         )
 
+    # Scale max_tokens with count: ~50 tokens per zodiac entry, plus JSON
+    # overhead. Floor 1500, headroom 1.5x.
+    max_tokens = max(1500, int(count * 75))
+
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -155,7 +159,7 @@ def generate_phrases(
         ],
         response_format={"type": "json_object"},
         temperature=0.9,
-        max_tokens=2000,
+        max_tokens=max_tokens,
     )
 
     raw = response.choices[0].message.content or "{}"
