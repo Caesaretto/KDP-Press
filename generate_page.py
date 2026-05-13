@@ -236,33 +236,132 @@ def build_prompt(sign: str) -> str:
     )
 
 
-def generate_image(prompt: str, client: OpenAI) -> Image.Image:
-    print("  → Calling gpt-image-1…", flush=True)
+# ── Image-generation provider abstraction ──────────────────────────────────────
+# Primary: fal.ai FLUX (cheaper, faster). Fallback: OpenAI gpt-image-1.
+# Configurable via env: IMAGE_PROVIDER ("fal" | "openai"), IMAGE_MODEL.
+
+_ALLOWED_IMAGE_HOSTS = (
+    "openai.com",
+    "oaiusercontent.com",
+    "azure.com",
+    "fal.ai",
+    "fal.media",
+    "replicate.delivery",
+)
+
+
+def _host_allowed(hostname: str) -> bool:
+    """Allow root domain OR any subdomain of allowlisted domains."""
+    for h in _ALLOWED_IMAGE_HOSTS:
+        if hostname == h or hostname.endswith("." + h):
+            return True
+    return False
+
+
+def _fetch_image_url(url: str, timeout: int = 60) -> bytes:
+    """Fetch image bytes from a trusted host with strict allowlist."""
+    import urllib.request
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise RuntimeError(f"Refusing non-HTTPS image URL: {url}")
+    if not _host_allowed(parsed.hostname):
+        raise RuntimeError(f"Refusing image host: {parsed.hostname}")
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return r.read()
+
+
+def _generate_openai(prompt: str, client: OpenAI,
+                     quality: str = "high",
+                     size: str = "1024x1536") -> Image.Image:
+    """Generate via OpenAI gpt-image-1. ~$0.19/img high, $0.04 medium."""
+    print(f"  → OpenAI gpt-image-1 ({quality})…", flush=True)
     response = client.images.generate(
-        model="gpt-image-1",
-        prompt=prompt,
-        size="1024x1536",
-        quality="high",
-        n=1,
+        model="gpt-image-1", prompt=prompt, size=size, quality=quality, n=1,
     )
     item = response.data[0]
     if hasattr(item, "b64_json") and item.b64_json:
         img_bytes = base64.b64decode(item.b64_json)
     elif hasattr(item, "url") and item.url:
-        import urllib.request
-        from urllib.parse import urlparse
-        parsed = urlparse(item.url)
-        if parsed.scheme != "https" or not parsed.hostname or not (
-            parsed.hostname.endswith(".openai.com")
-            or parsed.hostname.endswith(".oaiusercontent.com")
-            or parsed.hostname.endswith(".azure.com")
-        ):
-            raise RuntimeError(f"Refusing to fetch image from unexpected host: {parsed.hostname}")
-        with urllib.request.urlopen(item.url, timeout=30) as r:
-            img_bytes = r.read()
+        img_bytes = _fetch_image_url(item.url, timeout=30)
     else:
         raise RuntimeError("OpenAI response: no b64_json or url found.")
     return Image.open(BytesIO(img_bytes)).convert("RGB")
+
+
+def _generate_fal(prompt: str, model: str = "fal-ai/flux/schnell") -> Image.Image:
+    """Generate via fal.ai FLUX. Schnell ~$0.003/img (4 steps), dev ~$0.025/img (28 steps).
+
+    Requires FAL_KEY env var. Output 1024×1536 (portrait, matches our KDP aspect).
+    """
+    import os as _os
+    if not _os.environ.get("FAL_KEY"):
+        raise RuntimeError("FAL_KEY env var not set — fal.ai provider unavailable")
+    import fal_client
+    print(f"  → fal.ai {model}…", flush=True)
+    result = fal_client.subscribe(
+        model,
+        arguments={
+            "prompt": prompt,
+            "image_size": {"width": 1024, "height": 1536},
+            "num_inference_steps": 4 if "schnell" in model else 28,
+            "num_images": 1,
+            "enable_safety_checker": False,
+        },
+    )
+    images = result.get("images") if isinstance(result, dict) else None
+    if not images or not isinstance(images, list):
+        raise RuntimeError(f"fal.ai returned no images: {result}")
+    url = images[0].get("url") if isinstance(images[0], dict) else None
+    if not url:
+        raise RuntimeError(f"fal.ai image entry has no url: {images[0]}")
+    img_bytes = _fetch_image_url(url, timeout=60)
+    return Image.open(BytesIO(img_bytes)).convert("RGB")
+
+
+def generate_image(prompt: str, client: OpenAI) -> Image.Image:
+    """Provider-agnostic image generation with automatic failover.
+
+    Env vars:
+      IMAGE_PROVIDER     = "fal" (default if FAL_KEY set) | "openai"
+      IMAGE_MODEL_FAL    = "fal-ai/flux/schnell" (default) | "fal-ai/flux/dev"
+      IMAGE_MODEL_OPENAI = "gpt-image-1" (only option)
+      IMAGE_QUALITY_OPENAI = "high" (default) | "medium" | "low"
+      IMAGE_FALLBACK     = "1" (default) — fall back to OpenAI on fal failure
+
+    If the primary provider raises, attempt fallback once (if enabled and the
+    fallback provider is different from the primary).
+    """
+    import os as _os
+    provider = _os.environ.get("IMAGE_PROVIDER", "").strip().lower()
+    has_fal = bool(_os.environ.get("FAL_KEY"))
+    has_openai = bool(_os.environ.get("OPENAI_API_KEY"))
+
+    # Auto-default: prefer fal if key present, otherwise openai
+    if not provider:
+        provider = "fal" if has_fal else "openai"
+
+    fal_model = _os.environ.get("IMAGE_MODEL_FAL", "fal-ai/flux/schnell").strip()
+    openai_q  = _os.environ.get("IMAGE_QUALITY_OPENAI", "high").strip()
+    fallback_enabled = _os.environ.get("IMAGE_FALLBACK", "1").strip() == "1"
+
+    try:
+        if provider == "fal":
+            return _generate_fal(prompt, model=fal_model)
+        return _generate_openai(prompt, client, quality=openai_q)
+    except Exception as primary_exc:
+        if not fallback_enabled:
+            raise
+        # Try the OTHER provider once, if it has credentials
+        if provider == "fal" and has_openai:
+            print(f"  ⚠ fal.ai failed ({primary_exc}); falling back to OpenAI…",
+                  flush=True)
+            return _generate_openai(prompt, client, quality=openai_q)
+        if provider == "openai" and has_fal:
+            print(f"  ⚠ OpenAI failed ({primary_exc}); falling back to fal.ai…",
+                  flush=True)
+            return _generate_fal(prompt, model=fal_model)
+        raise
 
 
 def binarize(img: Image.Image, threshold: int = BINARIZE_THR) -> Image.Image:

@@ -26,10 +26,16 @@
 
 | Var | Required | Purpose |
 |-----|----------|---------|
-| `OPENAI_API_KEY` | yes | AI image generation |
+| `FAL_KEY` | yes (primary) | fal.ai FLUX image generation (default provider) |
+| `OPENAI_API_KEY` | yes (fallback) | gpt-image-1 fallback + all LLM agents (phrase/visual/marketing) |
 | `APP_PASSWORD` | yes | Cousin's login password |
 | `OUTPUT_BASE` | yes | `/data/output` (persistent volume mount) |
-| `DAILY_IMAGE_CAP` | no | Default `50`, daily AI image quota |
+| `IMAGE_PROVIDER` | no | `fal` (default if FAL_KEY set) or `openai`. Forces primary provider. |
+| `IMAGE_MODEL_FAL` | no | `fal-ai/flux/schnell` (default, ~$0.003/img) or `fal-ai/flux/dev` (~$0.025/img) |
+| `IMAGE_QUALITY_OPENAI` | no | `high` (default), `medium`, or `low` — only used when IMAGE_PROVIDER=openai or as fallback |
+| `IMAGE_FALLBACK` | no | `1` (default) — auto-fallback to the other provider on primary failure |
+| `DAILY_IMAGE_CAP` | no | Default `50`, daily image-generation count cap |
+| `BOOKS_RETENTION_MAX` | no | Default `30`, auto-prune oldest completed books beyond this |
 | `BREVO_API_KEY` | no | Only for Marketing tab email features |
 | `BREVO_LIST_ID` | no | Only for Marketing tab email features |
 
