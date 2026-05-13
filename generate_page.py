@@ -51,46 +51,91 @@ FONT_CANDIDATES = [
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MASTER PROMPT TEMPLATE
-# Parameters: {simbolo_angolo}, {simbolo_lato}, {soggetto_kawaii}
+# MASTER PROMPT TEMPLATE v2 — kawaii tarot-card editorial style
+# Parameters: {soggetto_kawaii}, {glyph_unicode}, {thematic_prop}, {scatter_elements}
+# Synthesis di 3 agenti specializzati (visual analysis + prompt engineering + arch).
+# Riferimenti: refs/ref_01_aquarius.jpg, refs/ref_02_pisces.jpg
 # ══════════════════════════════════════════════════════════════════════════════
 
 MASTER_PROMPT_TEMPLATE = """\
-Black and white kawaii coloring book illustration page. Pure black outlines on \
-pure white background. Zero gray shading, zero gradients, zero textures. \
-Bold uniform linework throughout.
+STYLE ANCHOR (use verbatim across the entire series): kawaii chibi coloring book \
+page in editorial tarot-card style. Bold uniform black ink lines (#000000) on \
+pure white paper (#FFFFFF). White fill inside all shapes. Vector-clean linework \
+of consistent thickness throughout, like a printed children's coloring book. \
+ZERO grayscale, ZERO shading, ZERO gradients, ZERO hatching, ZERO stippling, \
+ZERO textures, ZERO solid fills — every enclosed region is filled with pure \
+white #FFFFFF ready to be colored.
 
-PAGE LAYOUT (critical - follow exactly):
-The page is divided into two sections, both INSIDE the decorative border:
-- TOP 70%: kawaii illustration area with clean white background
-- BOTTOM 30%: completely empty white rectangle, no illustrations, no text, \
-no decorations whatsoever
+═══ PAGE COMPOSITION (vertical 4:5 portrait, three horizontal regions inside the border) ═══
+- UPPER REGION (about two thirds of the page): main kawaii illustration with \
+generous breathing white space around it
+- LOWER REGION (about one third of the page, clearly visible as an empty white \
+rectangular band as tall as half the illustration region): completely empty \
+pure-white area reserved for caption — NO illustrations, NO decorations, NO \
+text inside this band, just clean empty white space
+- COPYRIGHT line (just below the outer border, outside the decorative frame): \
+tiny thin sans-serif "© 2026", centered, solid thin black
 
-DECORATIVE BORDER (critical - must surround the ENTIRE page including the \
-bottom white area):
-- Outer thick black line forming a complete rectangle around the full page
-- Inner thin black line parallel to outer line, with decorative space between them
-- Four corners: large {simbolo_angolo} filling each corner space
-- All four sides (top, bottom, left, right): {simbolo_lato} repeated at regular \
-intervals along the entire side, connected by a thin ornamental line
-- Border width: approximately 8% of page width on each side
-- Style: kawaii tarot card border, ornate but clean
+═══ DECORATIVE BORDER (double-frame tarot-card style, occupies the outer ~7% of each page side) ═══
+- OUTER FRAME: thick crisp black rectangle around the ENTIRE page including \
+above, below, and beside the empty white caption band. Corners slightly \
+chamfered at 45 degrees.
+- INNER FRAME: a second parallel thinner black rectangle drawn ~15 pixels \
+inside the outer frame, same chamfered corners.
+- FOUR CORNERS: each corner contains one large 5-pointed star + the \
+astrological glyph {glyph_unicode} (medium size) + 2 or 3 satellite tiny stars \
+arranged organically. This corner cluster crosses both inner and outer frame \
+lines, visually breaking the rectangle.
+- FOUR SIDES (top, bottom, left, right — ALL FOUR, especially BOTTOM): between \
+corners, alternate medium 5-pointed stars (3 to 4 per long side) with the \
+astrological glyph {glyph_unicode} repeated (1 to 2 per long side), distributed \
+ASYMMETRICALLY (NOT on a strict grid). Elements bridge both frame lines.
+- The decorative border on the BOTTOM side (below the empty white caption band) \
+is EQUALLY ornate and complete as the top border. It must NOT be missing or \
+simplified.
 
-MAIN ILLUSTRATION (inside the top 70% of the border):
+═══ MAIN ILLUSTRATION (upper region only, centered) ═══
 - Subject: {soggetto_kawaii}
-- Style: chibi kawaii, big cute round eyes, simple happy expression, rounded shapes
-- Size: fills approximately 80% of the illustration area
-- Background: pure white with maximum 4 small decorative elements scattered \
-(4-pointed stars, tiny hearts, small circles/bubbles)
-- NO patterns, NO dense backgrounds, NO competing elements
+- Proportions: chibi kawaii — head-to-body ratio approximately 1 to 1 for \
+humanoid characters, oversized cute features for animal characters
+- Face details: large round black eyes with a single white circular highlight \
+inside each eye, small curved smile, two tiny round blush cheeks
+- Size: subject occupies about 55 to 65 percent of the illustration region \
+width, centered horizontally, positioned slightly above the vertical center \
+of the upper region, with generous white margin around it (never touching \
+the border)
+- ZODIAC MARKER ON-CHARACTER: draw the astrological glyph {glyph_unicode} \
+directly onto the subject's body as a small decorative tattoo or marking \
+(on the cheek, shoulder, forehead, or fin — depending on subject anatomy)
+- THEMATIC CONTEXT PROP: include {thematic_prop} near or behind the subject \
+as a small supporting element
 
-ABSOLUTE RULES:
-- NO text anywhere in the image (not even single letters or symbols that look like text)
-- NO gray pixels anywhere
-- NO shading or gradients
-- The bottom 30% must be completely empty white space
-- The decorative border must be complete on ALL FOUR sides including around \
-the bottom white area\
+═══ SCATTERED BACKGROUND ACCENTS (upper region only, in the white space around the subject) ═══
+- Place 3 to 6 medium-sized thematic decorations: {scatter_elements}
+- Each accent is medium-sized (roughly 5 to 10 percent of page width), NOT \
+microscopic
+- Distribute asymmetrically — never aligned, never on a grid, never touching \
+each other or the subject or the border
+- Each accent isolated, separated from neighbors by at least 200 pixels of \
+pure white empty space
+
+═══ INVARIANTS (must ALL hold simultaneously — these override anything else) ═══
+- The decorative border closes completely on ALL FOUR sides; the bottom \
+border below the empty caption band is fully drawn and ornate.
+- The lower one-third caption band is a pure white #FFFFFF rectangle with NO \
+illustrations, NO patterns, NO text, NO decorations of any kind inside it \
+(but the border around it is fully drawn).
+- NO letters, NO numbers, NO runes, NO words, NO captions, NO signatures, NO \
+watermarks, NO ghost text anywhere in the image other than the tiny "© 2026" \
+copyright line below the outer border.
+- NO color anywhere — only pure black #000000 and pure pure white #FFFFFF.
+- NO grayscale pixels — every pixel is either fully black or fully white.
+- NO shading, NO gradients, NO crosshatching, NO stippling, NO halftone, NO \
+textures, NO patterned fills inside shapes.
+- NO anti-aliasing artifacts, NO soft edges — every line is crisp and clean.
+- Line thickness is consistent (uniform stroke weight) across the entire image.
+- Subject occupies at most 65 percent of the illustration region (preserves \
+white breathing room).\
 """
 
 
@@ -103,14 +148,19 @@ def build_prompt(sign: str) -> str:
     data = ZODIAC_CONFIG.get(key)
     if data is None:
         data = {
-            "simbolo_angolo":  f"{sign} stylized decorative element",
-            "simbolo_lato":    f"small cute {sign} symbol",
-            "soggetto_kawaii": f"one adorable kawaii {sign} symbol with big round eyes and rosy cheeks",
+            "glyph_unicode":    "★",
+            "soggetto_kawaii":  f"one adorable kawaii {sign} character with big round eyes and rosy cheeks",
+            "thematic_prop":    f"a small {sign}-themed prop",
+            "scatter_elements": "small 5-pointed stars, tiny hearts, small swirls",
         }
     return MASTER_PROMPT_TEMPLATE.format(
-        simbolo_angolo=data["simbolo_angolo"],
-        simbolo_lato=data["simbolo_lato"],
+        glyph_unicode=data.get("glyph_unicode", "★"),
         soggetto_kawaii=data["soggetto_kawaii"],
+        thematic_prop=data.get("thematic_prop", "a small thematic prop"),
+        scatter_elements=data.get(
+            "scatter_elements",
+            "small 5-pointed stars, tiny hearts, small swirls",
+        ),
     )
 
 
@@ -149,12 +199,25 @@ def binarize(img: Image.Image, threshold: int = BINARIZE_THR) -> Image.Image:
 
 
 def enforce_white_text_zone(img: Image.Image) -> Image.Image:
-    """Wipe the interior of the text zone to pure white, preserving the border strip."""
-    w, h    = img.size
-    margin  = int(w * BORDER_RATIO)
-    zone_y  = int(h * (1 - TEXT_RATIO))
-    draw    = ImageDraw.Draw(img)
-    draw.rectangle([(margin, zone_y), (w - margin, h - margin)], fill=(255, 255, 255))
+    """Wipe the INTERIOR of the lower text band to pure white WITHOUT touching
+    the decorative border on top/bottom/sides of that band.
+
+    Bug pre-fix: the previous version used a gutter of just BORDER_RATIO (8%)
+    which clipped the inner ornamental line + lateral simboli of the tarot-card
+    border. We now use 1.4x BORDER_RATIO as gutter so the decorative frame on
+    every side of the text band survives.
+    """
+    w, h         = img.size
+    border_outer = int(w * BORDER_RATIO)
+    gutter       = int(w * BORDER_RATIO * 1.4)  # leave 40% extra so border art survives
+    zone_y_top   = int(h * (1 - TEXT_RATIO)) + int(h * 0.02)  # 2% top pad → no clip
+                                                              # of illustration tails
+    zone_y_bot   = h - gutter
+    draw = ImageDraw.Draw(img)
+    draw.rectangle(
+        [(gutter, zone_y_top), (w - gutter, zone_y_bot)],
+        fill=(255, 255, 255),
+    )
     return img
 
 
@@ -174,12 +237,22 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def _stroke_for(font_size: int) -> int:
+    """Stroke width per outline-text. ~6% del corpo del glifo, clamped per non
+    saturare l'interno dei caratteri piccoli. Allineato alle reference visive
+    (refs/ref_01_aquarius.jpg, refs/ref_02_pisces.jpg)."""
+    proportional = round(font_size * 0.06)
+    return max(3, min(proportional, font_size // 4))
+
+
 def _wrap_to_width(draw: ImageDraw.ImageDraw, text: str,
-                   font: ImageFont.FreeTypeFont, max_px: int) -> list[str]:
+                   font: ImageFont.FreeTypeFont, max_px: int,
+                   stroke_width: int = 0) -> list[str]:
     words, lines, cur = text.split(), [], ""
     for word in words:
         candidate = f"{cur} {word}".strip()
-        if draw.textbbox((0, 0), candidate, font=font)[2] <= max_px:
+        bbox = draw.textbbox((0, 0), candidate, font=font, stroke_width=stroke_width)
+        if bbox[2] <= max_px:
             cur = candidate
         else:
             if cur:
@@ -190,48 +263,78 @@ def _wrap_to_width(draw: ImageDraw.ImageDraw, text: str,
     return lines or [text]
 
 
-def inject_text(img: Image.Image, phrase: str) -> Image.Image:
+def outline_text(img: Image.Image, phrase: str) -> Image.Image:
+    """Render the phrase as HOLLOW OUTLINE LETTERS (white fill, thick black
+    stroke) in the lower text band, so the letters themselves are colorable.
+
+    Replaces the legacy inject_text() which drew solid black text. The new
+    behavior matches the editorial coloring-book references in refs/.
+
+    All-caps uppercase rendering (refs are uppercase), centered, line-break
+    by word-wrap. Auto-fits the largest font size that fits the band height
+    while preserving padding from the decorative border.
+    """
     w, h        = img.size
+    phrase      = phrase.upper()  # references are all-caps
     border_px   = int(w * BORDER_RATIO)
+    inner_pad   = int(w * 0.04)         # extra gutter past the decorative border
     zone_top    = int(h * (1 - TEXT_RATIO))
-    zone_bottom = h - border_px
+    zone_bottom = h - border_px - inner_pad
     zone_h      = zone_bottom - zone_top
-    h_padding   = border_px + int(w * 0.06)
+    h_padding   = border_px + inner_pad + int(w * 0.04)
     max_text_w  = w - 2 * h_padding
-    target_h    = int(zone_h * 0.60)
+    target_h    = int(zone_h * 0.78)    # use most of the band; outline letters
+                                        # are visually heavy so we maximize
 
     draw = ImageDraw.Draw(img)
 
-    best_font, best_lines, best_gap = None, [phrase], 0
-    for fs in range(220, 18, -3):
+    best_font, best_lines, best_gap, best_stroke = None, [phrase], 0, 0
+    for fs in range(280, 28, -4):
         font     = _load_font(fs)
-        lines    = _wrap_to_width(draw, phrase, font, max_text_w)
-        line_gap = int(fs * 0.55)
-        line_h   = draw.textbbox((0, 0), "Ay", font=font)[3]
+        stroke   = _stroke_for(fs)
+        lines    = _wrap_to_width(draw, phrase, font, max_text_w, stroke_width=stroke)
+        line_gap = int(fs * 0.18)        # tight line-height ~1.15 like refs
+        line_h   = draw.textbbox((0, 0), "Ay", font=font, stroke_width=stroke)[3]
         blk_h    = line_h * len(lines) + line_gap * (len(lines) - 1)
-        max_lw   = max(draw.textbbox((0, 0), ln, font=font)[2] for ln in lines)
+        max_lw   = max(
+            draw.textbbox((0, 0), ln, font=font, stroke_width=stroke)[2]
+            for ln in lines
+        )
         if blk_h <= target_h and max_lw <= max_text_w:
-            best_font, best_lines, best_gap = font, lines, line_gap
+            best_font, best_lines, best_gap, best_stroke = font, lines, line_gap, stroke
             break
 
     if best_font is None:
-        best_font  = _load_font(20)
-        best_lines = _wrap_to_width(draw, phrase, best_font, max_text_w)
-        best_gap   = 6
+        best_font   = _load_font(28)
+        best_stroke = _stroke_for(28)
+        best_lines  = _wrap_to_width(draw, phrase, best_font, max_text_w,
+                                     stroke_width=best_stroke)
+        best_gap    = 6
 
     font   = best_font
-    line_h = draw.textbbox((0, 0), "Ay", font=font)[3]
+    stroke = best_stroke
+    line_h = draw.textbbox((0, 0), "Ay", font=font, stroke_width=stroke)[3]
     blk_h  = line_h * len(best_lines) + best_gap * (len(best_lines) - 1)
     y_start = zone_top + (zone_h - blk_h) // 2
 
     y = y_start
     for line in best_lines:
-        lw = draw.textbbox((0, 0), line, font=font)[2]
+        lw = draw.textbbox((0, 0), line, font=font, stroke_width=stroke)[2]
         x  = (w - lw) // 2
-        draw.text((x, y), line, font=font, fill=(0, 0, 0))
+        # OUTLINE LETTERING: black contour + white interior → colorable
+        draw.text(
+            (x, y), line, font=font,
+            fill=(255, 255, 255),
+            stroke_width=stroke,
+            stroke_fill=(0, 0, 0),
+        )
         y += line_h + best_gap
 
     return img
+
+
+# Backward-compat alias for callers still importing inject_text
+inject_text = outline_text
 
 
 # ══════════════════════════════════════════════════════════════════════════════
