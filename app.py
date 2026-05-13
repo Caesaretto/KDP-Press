@@ -207,13 +207,15 @@ def _generate_illustration(
     )
     _check_image_quota()
     raw   = generate_image(prompt, client)
+    OUTPUT_PAGES.mkdir(parents=True, exist_ok=True)
+    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Salviamo il raw per debug (cosa l'AI ha effettivamente prodotto)
+    raw_path = OUTPUT_PAGES / f"page_{ts}_raw.png"
+    raw.save(raw_path)
     kdp   = upscale_to_kdp(raw)
     proc  = binarize(kdp, threshold)
     proc  = enforce_white_text_zone(proc)
     final = inject_text(proc, phrase)
-
-    OUTPUT_PAGES.mkdir(parents=True, exist_ok=True)
-    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = OUTPUT_PAGES / f"page_{ts}_final.png"
     final.save(path, dpi=(OUTPUT_DPI, OUTPUT_DPI))
     return path
@@ -525,9 +527,16 @@ def page_book_builder() -> None:
                     _add_page("special_black", black_path)
 
                     st.success(f"✓ Illustrazione generata: {path.name}")
-                    thumb = _thumb(path)
-                    if thumb:
-                        st.image(thumb, caption=phrase[:50], width=200)
+                    # Mostriamo raw + final affiancati per debug visivo
+                    raw_path = path.parent / path.name.replace("_final.png", "_raw.png")
+                    col_a, col_b = st.columns(2)
+                    if raw_path.exists():
+                        with col_a:
+                            st.caption("AI raw (prima del post-processing)")
+                            st.image(str(raw_path), use_container_width=True)
+                    with col_b:
+                        st.caption("Finale (con testo)")
+                        st.image(str(path), use_container_width=True)
                 except Exception as e:
                     st.error(f"Errore generazione: {e}")
 

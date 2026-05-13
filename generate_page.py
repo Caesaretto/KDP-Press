@@ -58,13 +58,17 @@ FONT_CANDIDATES = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 MASTER_PROMPT_TEMPLATE = """\
-STYLE ANCHOR (use verbatim across the entire series): kawaii chibi coloring book \
-page in editorial tarot-card style. Bold uniform black ink lines (#000000) on \
-pure white paper (#FFFFFF). White fill inside all shapes. Vector-clean linework \
-of consistent thickness throughout, like a printed children's coloring book. \
-ZERO grayscale, ZERO shading, ZERO gradients, ZERO hatching, ZERO stippling, \
-ZERO textures, ZERO solid fills — every enclosed region is filled with pure \
-white #FFFFFF ready to be colored.
+A single page from a kawaii children's coloring book. The page background is \
+pure white paper #FFFFFF EVERYWHERE — never dark, never inverted, never \
+filled with black. On top of this white paper, thin uniform BLACK ink lines \
+(#000000) draw the illustration as hollow outlines. Every enclosed shape is \
+filled with pure white #FFFFFF, ready to be colored in by a child with crayons. \
+Imagine the kind of clean printed coloring book page you'd find in a kids' \
+activity book — white paper, black lines, nothing else.
+
+NO black background. NO dark backgrounds. NO solid color fills. NO inverted \
+images (white-on-black). NO grayscale, NO shading, NO gradients, NO hatching, \
+NO stippling, NO textures.
 
 ═══ PAGE COMPOSITION (vertical 4:5 portrait, three horizontal regions inside the border) ═══
 - UPPER REGION (about two thirds of the page): main kawaii illustration with \
@@ -76,7 +80,7 @@ text inside this band, just clean empty white space
 - COPYRIGHT line (just below the outer border, outside the decorative frame): \
 tiny thin sans-serif "© 2026", centered, solid thin black
 
-═══ DECORATIVE BORDER (double-frame tarot-card style, occupies the outer ~7% of each page side) ═══
+═══ DECORATIVE BORDER (double-frame ornate kawaii style, occupies the outer ~7% of each page side) ═══
 - OUTER FRAME: thick crisp black rectangle around the ENTIRE page including \
 above, below, and beside the empty white caption band. Corners slightly \
 chamfered at 45 degrees.
@@ -119,7 +123,10 @@ each other or the subject or the border
 - Each accent isolated, separated from neighbors by at least 200 pixels of \
 pure white empty space
 
-═══ INVARIANTS (must ALL hold simultaneously — these override anything else) ═══
+═══ STRICT RULES (must ALL hold simultaneously — these override anything else) ═══
+- THE PAGE BACKGROUND IS PURE WHITE #FFFFFF EVERYWHERE. Never black, never \
+dark, never inverted. The drawing is always thin BLACK lines on WHITE paper, \
+NEVER the opposite.
 - The decorative border closes completely on ALL FOUR sides; the bottom \
 border below the empty caption band is fully drawn and ornate.
 - The lower one-third caption band is a pure white #FFFFFF rectangle with NO \
@@ -128,12 +135,11 @@ illustrations, NO patterns, NO text, NO decorations of any kind inside it \
 - NO letters, NO numbers, NO runes, NO words, NO captions, NO signatures, NO \
 watermarks, NO ghost text anywhere in the image other than the tiny "© 2026" \
 copyright line below the outer border.
-- NO color anywhere — only pure black #000000 and pure pure white #FFFFFF.
-- NO grayscale pixels — every pixel is either fully black or fully white.
-- NO shading, NO gradients, NO crosshatching, NO stippling, NO halftone, NO \
-textures, NO patterned fills inside shapes.
-- NO anti-aliasing artifacts, NO soft edges — every line is crisp and clean.
-- Line thickness is consistent (uniform stroke weight) across the entire image.
+- Only two colors exist in this image: pure black #000000 (the line art) and \
+pure white #FFFFFF (everything else). No grays, no halftones, no shading, no \
+gradients, no crosshatching, no stippling, no patterned fills.
+- All linework has uniform thin stroke weight, like a printed children's \
+coloring book.
 - Subject occupies at most 65 percent of the illustration region (preserves \
 white breathing room).\
 """
