@@ -1579,6 +1579,15 @@ def page_new_book() -> None:
     meta = _json.loads((book_path / "book.json").read_text())
 
     st.success(f"✓ Libro completato: {meta['count_generated']}/{meta['count_requested']} pagine.")
+    # Mostra esplicitamente il provider effettivamente usato (utile per
+    # diagnosticare silent fallback fal → OpenAI)
+    import generate_page as _gp
+    if _gp.LAST_PROVIDER_USED:
+        if "fallback" in _gp.LAST_PROVIDER_USED.lower():
+            st.warning(f"🔄 Provider effettivo: **{_gp.LAST_PROVIDER_USED}**\n\n"
+                       f"Motivo: {_gp.LAST_PROVIDER_NOTE}")
+        else:
+            st.caption(f"🛠 Provider usato: **{_gp.LAST_PROVIDER_USED}**")
     if meta.get("errors"):
         with st.expander(f"⚠️ {len(meta['errors'])} pagine con errori"):
             for err in meta["errors"]:

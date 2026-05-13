@@ -319,25 +319,28 @@ def _generate_fal(prompt: str, model: str = "fal-ai/flux/schnell") -> Image.Imag
     return Image.open(BytesIO(img_bytes)).convert("RGB")
 
 
+# Module-level tracker for the most recent provider actually used. The UI
+# inspects this AFTER each call to display which provider generated the image
+# (helps diagnose silent fallbacks like "thought I was on fal but used OpenAI").
+LAST_PROVIDER_USED: str = ""
+LAST_PROVIDER_NOTE: str = ""
+
+
 def generate_image(prompt: str, client: OpenAI) -> Image.Image:
     """Provider-agnostic image generation with automatic failover.
 
     Env vars:
       IMAGE_PROVIDER     = "fal" (default if FAL_KEY set) | "openai"
       IMAGE_MODEL_FAL    = "fal-ai/flux/schnell" (default) | "fal-ai/flux/dev"
-      IMAGE_MODEL_OPENAI = "gpt-image-1" (only option)
       IMAGE_QUALITY_OPENAI = "high" (default) | "medium" | "low"
       IMAGE_FALLBACK     = "1" (default) — fall back to OpenAI on fal failure
-
-    If the primary provider raises, attempt fallback once (if enabled and the
-    fallback provider is different from the primary).
     """
+    global LAST_PROVIDER_USED, LAST_PROVIDER_NOTE
     import os as _os
     provider = _os.environ.get("IMAGE_PROVIDER", "").strip().lower()
     has_fal = bool(_os.environ.get("FAL_KEY"))
     has_openai = bool(_os.environ.get("OPENAI_API_KEY"))
 
-    # Auto-default: prefer fal if key present, otherwise openai
     if not provider:
         provider = "fal" if has_fal else "openai"
 
@@ -345,22 +348,34 @@ def generate_image(prompt: str, client: OpenAI) -> Image.Image:
     openai_q  = _os.environ.get("IMAGE_QUALITY_OPENAI", "high").strip()
     fallback_enabled = _os.environ.get("IMAGE_FALLBACK", "1").strip() == "1"
 
+    LAST_PROVIDER_NOTE = ""
     try:
         if provider == "fal":
-            return _generate_fal(prompt, model=fal_model)
-        return _generate_openai(prompt, client, quality=openai_q)
+            img = _generate_fal(prompt, model=fal_model)
+            LAST_PROVIDER_USED = f"fal.ai ({fal_model})"
+            return img
+        img = _generate_openai(prompt, client, quality=openai_q)
+        LAST_PROVIDER_USED = f"OpenAI gpt-image-1 ({openai_q})"
+        return img
     except Exception as primary_exc:
         if not fallback_enabled:
+            LAST_PROVIDER_USED = f"FAILED ({provider})"
             raise
-        # Try the OTHER provider once, if it has credentials
         if provider == "fal" and has_openai:
-            print(f"  ⚠ fal.ai failed ({primary_exc}); falling back to OpenAI…",
-                  flush=True)
-            return _generate_openai(prompt, client, quality=openai_q)
+            note = f"fal.ai failed → fallback OpenAI. Reason: {primary_exc}"
+            print(f"  ⚠ {note}", flush=True)
+            img = _generate_openai(prompt, client, quality=openai_q)
+            LAST_PROVIDER_USED = f"OpenAI gpt-image-1 ({openai_q}) [fallback]"
+            LAST_PROVIDER_NOTE = note
+            return img
         if provider == "openai" and has_fal:
-            print(f"  ⚠ OpenAI failed ({primary_exc}); falling back to fal.ai…",
-                  flush=True)
-            return _generate_fal(prompt, model=fal_model)
+            note = f"OpenAI failed → fallback fal.ai. Reason: {primary_exc}"
+            print(f"  ⚠ {note}", flush=True)
+            img = _generate_fal(prompt, model=fal_model)
+            LAST_PROVIDER_USED = f"fal.ai ({fal_model}) [fallback]"
+            LAST_PROVIDER_NOTE = note
+            return img
+        LAST_PROVIDER_USED = f"FAILED ({provider})"
         raise
 
 
