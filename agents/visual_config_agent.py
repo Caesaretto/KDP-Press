@@ -140,7 +140,9 @@ def generate_visual_configs(
         phrases_list=phrases_list,
     )
 
-    # Scale max_tokens: each config ~150 tokens including overhead
+    # Scale max_tokens: each config ~150 tokens including overhead; *200
+    # gives headroom for variable-length descriptions. Floor 2000 covers
+    # small batches (e.g. 6-page books).
     max_tokens = max(2000, len(phrases) * 200)
 
     try:
