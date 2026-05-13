@@ -96,7 +96,6 @@ def _init_session() -> None:
             st.session_state.project = {"niche": None, "pages": []}
 
     defaults = {
-        "api_key":     os.environ.get("OPENAI_API_KEY", ""),
         "qr_url":      "https://thedailyburnoutpress.com/bonus",
         "nav_page":    "🏠 Dashboard",
         "gen_log":     "",
@@ -137,8 +136,8 @@ def _thumb(img_path: str | Path) -> bytes | None:
 
 
 def _get_api_key() -> str:
-    key = st.session_state.api_key or os.environ.get("OPENAI_API_KEY", "")
-    return key
+    """API key è server-side only. Non esponibile mai al frontend."""
+    return os.environ.get("OPENAI_API_KEY", "").strip()
 
 
 DAILY_IMAGE_CAP = int(os.environ.get("DAILY_IMAGE_CAP", "50"))
@@ -448,7 +447,7 @@ def page_book_builder() -> None:
         st.subheader("Genera Illustrazione")
 
         if not _get_api_key():
-            st.error("API Key OpenAI mancante. Inseriscila nella sidebar.")
+            st.error("⚠️ Servizio AI temporaneamente non disponibile. Contatta l'amministratore.")
 
         # Subject selector
         if niche_key == "astrology":
@@ -1031,7 +1030,7 @@ def page_studio_mode() -> None:
     st.title("🎨 Studio Mode")
     st.caption("Controllo estremo: prompt, layout, pipeline, QC")
     if not _get_api_key():
-        st.error("API Key OpenAI mancante. Inseriscila nella sidebar.")
+        st.error("⚠️ Servizio AI temporaneamente non disponibile. Contatta l'amministratore.")
 
     state = _studio_state()
     tab_quick, tab_custom, tab_advanced, tab_cover = st.tabs(
@@ -1469,19 +1468,6 @@ def main() -> None:
             key="nav_radio",
         )
         st.session_state.nav_page = page
-
-        st.divider()
-        st.markdown("**⚙️ Settings**")
-
-        api_input = st.text_input(
-            "OpenAI API Key",
-            value=st.session_state.api_key,
-            type="password",
-            placeholder="sk-...",
-            help="Oppure imposta la variabile OPENAI_API_KEY",
-        )
-        if api_input != st.session_state.api_key:
-            st.session_state.api_key = api_input
 
         st.divider()
 
