@@ -185,19 +185,25 @@ def _check_image_quota() -> None:
 
 
 def _generate_illustration(
-    simbolo_angolo: str,
-    simbolo_lato: str,
     soggetto_kawaii: str,
     phrase: str,
+    *,
+    glyph_unicode: str = "★",
+    thematic_prop: str = "a small thematic prop",
+    scatter_elements: str = "small 5-pointed stars, tiny hearts, small swirls",
     threshold: int = BINARIZE_THR,
+    # Legacy v1 kwargs kept for backward-compat with older callers (ignored by v2 template)
+    simbolo_angolo: str | None = None,
+    simbolo_lato: str | None = None,
 ) -> Path:
     from openai import OpenAI
 
     client = OpenAI(api_key=_get_api_key() or None)
     prompt = MASTER_PROMPT_TEMPLATE.format(
-        simbolo_angolo=simbolo_angolo,
-        simbolo_lato=simbolo_lato,
+        glyph_unicode=glyph_unicode,
         soggetto_kawaii=soggetto_kawaii,
+        thematic_prop=thematic_prop,
+        scatter_elements=scatter_elements,
     )
     _check_image_quota()
     raw   = generate_image(prompt, client)
@@ -220,9 +226,13 @@ def _generate_zodiac_illustration(sign: str, phrase: str, idx: int,
     from openai import OpenAI
     cfg = ZODIAC_CONFIG[sign]
     prompt = MASTER_PROMPT_TEMPLATE.format(
-        simbolo_angolo=cfg["simbolo_angolo"],
-        simbolo_lato=cfg["simbolo_lato"],
+        glyph_unicode=cfg.get("glyph_unicode", "★"),
         soggetto_kawaii=cfg["soggetto_kawaii"],
+        thematic_prop=cfg.get("thematic_prop", "a small thematic prop"),
+        scatter_elements=cfg.get(
+            "scatter_elements",
+            "small 5-pointed stars, tiny hearts, small swirls",
+        ),
     )
     _check_image_quota()
     client = OpenAI(api_key=_get_api_key() or None)
@@ -455,7 +465,9 @@ def page_book_builder() -> None:
                 {
                     "key": sign,
                     "label": ZODIAC_CONFIG[sign]["en_name"],
-                    **{k: ZODIAC_CONFIG[sign][k] for k in ("simbolo_angolo", "simbolo_lato", "soggetto_kawaii")},
+                    **{k: ZODIAC_CONFIG[sign].get(k) for k in (
+                        "glyph_unicode", "soggetto_kawaii", "thematic_prop", "scatter_elements"
+                    ) if ZODIAC_CONFIG[sign].get(k) is not None},
                 }
                 for sign in SIGN_ORDER
             ]
@@ -490,9 +502,15 @@ def page_book_builder() -> None:
             with st.spinner(f"Generando '{selected_label}'… (~30 secondi)"):
                 try:
                     path = _generate_illustration(
-                        simbolo_angolo=subject_cfg["simbolo_angolo"],
-                        simbolo_lato=subject_cfg["simbolo_lato"],
                         soggetto_kawaii=subject_cfg["soggetto_kawaii"],
+                        glyph_unicode=subject_cfg.get("glyph_unicode", "★"),
+                        thematic_prop=subject_cfg.get(
+                            "thematic_prop", "a small thematic prop"
+                        ),
+                        scatter_elements=subject_cfg.get(
+                            "scatter_elements",
+                            "small 5-pointed stars, tiny hearts, small swirls",
+                        ),
                         phrase=phrase,
                     )
                     # Add illustration + black separator
@@ -1199,9 +1217,10 @@ def page_studio_mode() -> None:
         st.subheader("Advanced — full prompt + tutte le toggles")
         if "a_prompt" not in st.session_state:
             st.session_state["a_prompt"] = MASTER_PROMPT_TEMPLATE.format(
-                simbolo_angolo="decorative corner ornament",
-                simbolo_lato="small thematic symbol",
+                glyph_unicode="★",
                 soggetto_kawaii="(describe your subject here)",
+                thematic_prop="(describe a thematic prop near the subject)",
+                scatter_elements="small 5-pointed stars, tiny hearts, small swirls",
             )
         prompt = st.text_area("Master prompt", height=320, key="a_prompt")
         phrase = st.text_input("Frase satirica (opzionale)", max_chars=120, key="a_phrase")
