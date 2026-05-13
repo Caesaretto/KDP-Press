@@ -58,90 +58,135 @@ FONT_CANDIDATES = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 MASTER_PROMPT_TEMPLATE = """\
-A single page from a kawaii children's coloring book. The page background is \
-pure white paper #FFFFFF EVERYWHERE — never dark, never inverted, never \
-filled with black. On top of this white paper, thin uniform BLACK ink lines \
-(#000000) draw the illustration as hollow outlines. Every enclosed shape is \
-filled with pure white #FFFFFF, ready to be colored in by a child with crayons. \
-Imagine the kind of clean printed coloring book page you'd find in a kids' \
-activity book — white paper, black lines, nothing else.
+A single page from a PREMIUM ORNATE adult coloring book in kawaii style \
+(Etsy-quality, NOT a sparse children's beginner book). PURE WHITE paper \
+background #FFFFFF EVERYWHERE — never dark, never inverted, never filled. \
+Medium-thick uniform BLACK ink lines (#000000) draw a RICHLY DETAILED, \
+densely populated illustration with hollow shapes ready to be colored.
 
-NO black background. NO dark backgrounds. NO solid color fills. NO inverted \
-images (white-on-black). NO grayscale, NO shading, NO gradients, NO hatching, \
-NO stippling, NO textures.
+═══ NON-NEGOTIABLE TOP-LEVEL REQUIREMENTS — every single one must be present ═══
 
-═══ PAGE COMPOSITION (vertical 4:5 portrait, three horizontal regions inside the border) ═══
-- UPPER REGION (about two thirds of the page): main kawaii illustration with \
-generous breathing white space around it
-- LOWER REGION (about one third of the page, clearly visible as an empty white \
-rectangular band as tall as half the illustration region): completely empty \
-pure-white area reserved for caption — NO illustrations, NO decorations, NO \
-text inside this band, just clean empty white space
-- COPYRIGHT line (just below the outer border, outside the decorative frame): \
-tiny thin sans-serif "© 2026", centered, solid thin black
+(1) DOUBLE-FRAME DECORATIVE BORDER ON ALL FOUR SIDES — top, right side, \
+bottom side, left side. Never skip a side. The left and right vertical \
+borders are EQUALLY decorated as the top and bottom. The bottom side has \
+the SAME density of ornaments as the top side. Border is a double rectangle: \
+thick OUTER frame + thinner INNER frame parallel, ~15 pixels apart, both \
+running continuously around the entire page perimeter, corners chamfered \
+at 45 degrees.
 
-═══ DECORATIVE BORDER (double-frame ornate kawaii style, occupies the outer ~7% of each page side) ═══
-- OUTER FRAME: thick crisp black rectangle around the ENTIRE page including \
-above, below, and beside the empty white caption band. Corners slightly \
-chamfered at 45 degrees.
-- INNER FRAME: a second parallel thinner black rectangle drawn ~15 pixels \
-inside the outer frame, same chamfered corners.
-- FOUR CORNERS: each corner contains one large 5-pointed star + the \
-astrological glyph {glyph_unicode} (medium size) + 2 or 3 satellite tiny stars \
-arranged organically. This corner cluster crosses both inner and outer frame \
-lines, visually breaking the rectangle.
-- FOUR SIDES (top, bottom, left, right — ALL FOUR, especially BOTTOM): between \
-corners, alternate medium 5-pointed stars (3 to 4 per long side) with the \
-astrological glyph {glyph_unicode} repeated (1 to 2 per long side), distributed \
-ASYMMETRICALLY (NOT on a strict grid). Elements bridge both frame lines.
-- The decorative border on the BOTTOM side (below the empty white caption band) \
-is EQUALLY ornate and complete as the top border. It must NOT be missing or \
-simplified.
+(2) THE ASTROLOGICAL GLYPH {glyph_unicode} APPEARS IN MINIMUM 9 PLACES:
+    - One in each of the 4 corner clusters (4 total)
+    - One or two on each of the 4 sides between corners (4 to 8 total)
+    - One drawn directly on the main character's body as a visible decorative \
+      marking (cheek, shoulder, forehead, or fin/wing depending on anatomy)
+    The glyph is recognizable, drawn with the same black line style.
 
-═══ MAIN ILLUSTRATION (upper region only, centered) ═══
-- Subject: {soggetto_kawaii}
-- Proportions: chibi kawaii — head-to-body ratio approximately 1 to 1 for \
-humanoid characters, oversized cute features for animal characters
-- Face details: large round black eyes with a single white circular highlight \
-inside each eye, small curved smile, two tiny round blush cheeks
-- Size: subject occupies about 55 to 65 percent of the illustration region \
-width, centered horizontally, positioned slightly above the vertical center \
-of the upper region, with generous white margin around it (never touching \
-the border)
-- ZODIAC MARKER ON-CHARACTER: draw the astrological glyph {glyph_unicode} \
-directly onto the subject's body as a small decorative tattoo or marking \
-(on the cheek, shoulder, forehead, or fin — depending on subject anatomy)
-- THEMATIC CONTEXT PROP: include {thematic_prop} near or behind the subject \
-as a small supporting element
+(3) MAIN CHARACTER IS LARGE AND DETAILED — occupies 55% to 65% of the upper \
+region width, centered horizontally, positioned slightly above the vertical \
+center of the upper region. Not a tiny isolated figure. Drawn with \
+substantial detail, multiple visible features, full pose. Subject details: \
+{soggetto_kawaii}
 
-═══ SCATTERED BACKGROUND ACCENTS (upper region only, in the white space around the subject) ═══
-- Place 3 to 6 medium-sized thematic decorations: {scatter_elements}
-- Each accent is medium-sized (roughly 5 to 10 percent of page width), NOT \
-microscopic
-- Distribute asymmetrically — never aligned, never on a grid, never touching \
-each other or the subject or the border
-- Each accent isolated, separated from neighbors by at least 200 pixels of \
-pure white empty space
+(4) LOWER ONE-THIRD OF THE PAGE IS A CLEAN EMPTY WHITE RECTANGULAR BAND — \
+NO drawings, NO text, NO decorations inside it. (The decorative border still \
+runs around it normally on its bottom and sides — the band is empty only in \
+its interior.)
 
-═══ STRICT RULES (must ALL hold simultaneously — these override anything else) ═══
-- THE PAGE BACKGROUND IS PURE WHITE #FFFFFF EVERYWHERE. Never black, never \
-dark, never inverted. The drawing is always thin BLACK lines on WHITE paper, \
-NEVER the opposite.
-- The decorative border closes completely on ALL FOUR sides; the bottom \
-border below the empty caption band is fully drawn and ornate.
-- The lower one-third caption band is a pure white #FFFFFF rectangle with NO \
-illustrations, NO patterns, NO text, NO decorations of any kind inside it \
-(but the border around it is fully drawn).
-- NO letters, NO numbers, NO runes, NO words, NO captions, NO signatures, NO \
-watermarks, NO ghost text anywhere in the image other than the tiny "© 2026" \
-copyright line below the outer border.
-- Only two colors exist in this image: pure black #000000 (the line art) and \
-pure white #FFFFFF (everything else). No grays, no halftones, no shading, no \
-gradients, no crosshatching, no stippling, no patterned fills.
-- All linework has uniform thin stroke weight, like a printed children's \
-coloring book.
-- Subject occupies at most 65 percent of the illustration region (preserves \
-white breathing room).\
+(5) NO TEXT anywhere except a tiny "© 2026" placed centered just below \
+the outer border (outside the frame). No letters, numbers, words, captions, \
+signatures, watermarks, ghost text inside the illustration.
+
+═══ DECORATIVE BORDER — exact structure ═══
+
+OUTER FRAME: thick black rectangular outline (≈5 px stroke at output \
+resolution) tracing the full page perimeter, slightly chamfered corners.
+
+INNER FRAME: thinner black rectangular outline (≈3 px) parallel to outer, \
+drawn ~15 px inside, same chamfered corners.
+
+4 CORNER CLUSTERS (one per page corner — exactly 4 clusters total):
+Each cluster contains:
+  - 1 large 5-pointed star (≈100 px equivalent diameter) positioned in the \
+    corner space, overlapping both inner and outer frame lines
+  - 1 rendition of the glyph {glyph_unicode} (medium ~80 px) placed adjacent \
+    to the large star
+  - 2 or 3 small satellite 5-pointed stars (~40 px) arranged organically \
+    around the cluster
+The cluster visually "breaks" the rectangle by crossing both frame lines.
+
+4 SIDE RUNS (between corners on each of the 4 sides):
+  - TOP side run: alternating medium 5-pointed stars (3 to 4 of them, ~60 px) \
+    and glyphs {glyph_unicode} (1 to 2, ~60 px), organic spacing
+  - BOTTOM side run: SAME PATTERN — 3 to 4 stars + 1 to 2 glyphs, organic \
+    spacing. NOT empty, NOT simplified. As ornate as the top.
+  - LEFT side run (vertical between top-left and bottom-left corners): \
+    3 to 4 stars + 1 to 2 glyphs distributed vertically along the left edge.
+  - RIGHT side run (vertical between top-right and bottom-right corners): \
+    SAME pattern, distributed vertically along the right edge.
+All side ornaments straddle both inner and outer frame lines.
+
+═══ MAIN CHARACTER — anatomy spec ═══
+
+Chibi kawaii proportions: head-to-body ratio ≈ 1:1 for humans; oversized \
+cute heads/features for animals.
+
+Eyes: large round solid-black ovals/circles, each containing ONE circular \
+white highlight inside (~25% of eye area, in upper-right of pupil).
+
+Mouth: small upturned curved line (simple closed smile).
+
+Cheeks: two small round circles drawn as black outline only (no fill — \
+colorable).
+
+Body: rounded soft shapes throughout, no sharp realistic anatomy.
+
+Linework: medium-thick uniform black stroke (same weight as the border).
+
+ZODIAC MARK on character: small rendition of glyph {glyph_unicode} \
+(~8-12% of character body height) drawn on a clearly visible body part as \
+a decorative tattoo/marking. Hollow outline.
+
+THEMATIC CONTEXT: include {thematic_prop} as a small supporting element \
+positioned near or behind the character.
+
+═══ SCATTERED ACCENTS (in upper region white space around the character) ═══
+
+4 to 6 thematic decorations distributed asymmetrically in the white space \
+around the main character (not touching the subject, not touching the border):
+{scatter_elements}
+
+Each accent is medium-sized (5-10% of page width — visible, NOT tiny dots). \
+Distribution is organic and asymmetric — never on a grid, never aligned. \
+Each accent isolated with comfortable white-space buffer.
+
+═══ DENSITY REQUIREMENT (this is the difference between amateur and pro) ═══
+
+The OVERALL PAGE is RICHLY DECORATED. Empty white space exists only in:
+  (a) the interior of the lower one-third caption band
+  (b) breathing room immediately around the character
+  (c) small gaps between border ornaments and between scattered accents
+Everywhere else has visible black-line content. The page should look like \
+a premium Etsy/KDP coloring book page — ornate, detailed, well-composed — \
+NOT minimalist, NOT sparse, NOT a child's first coloring sheet.
+
+═══ STRICT RULES (override anything else) ═══
+
+1. Background is pure white #FFFFFF EVERYWHERE. Never black, never dark, \
+   never inverted. Lines are BLACK on WHITE, never the opposite.
+2. Border is on ALL FOUR sides, equally ornate, with corner clusters and \
+   side runs as specified above. The page MUST NOT have a border that is \
+   only top+bottom with empty left+right sides.
+3. The glyph {glyph_unicode} is visible in minimum 9 places (4 corners + \
+   4-8 sides + 1 on character).
+4. Only two colors: pure black #000000 (lines) and pure white #FFFFFF \
+   (everything else). No grays, no halftones, no shading, no gradients, \
+   no crosshatching, no stippling, no patterned fills inside shapes.
+5. Linework is uniform medium-thick stroke throughout (like a printed \
+   coloring book).
+6. The lower one-third caption band INTERIOR is empty (border still around).
+7. No text anywhere except the tiny "© 2026" line below the outer border.
+8. Character is 55-65% of upper region width (not smaller, not bigger).
+9. The page is densely decorated and ornate (see DENSITY REQUIREMENT above).\
 """
 
 
