@@ -1489,11 +1489,16 @@ def page_new_book() -> None:
         )
 
         c3, c4, c5 = st.columns(3)
+        # Build niche dropdown from NICHES with astrology pinned first.
+        _niche_keys = ["astrology"] + [k for k in NICHES.keys() if k != "astrology"]
+        _niche_labels = {k: f"{NICHES.get(k, {}).get('emoji', '📖')} {NICHES.get(k, {}).get('name', k.replace('_', ' ').title())}"
+                         for k in _niche_keys}
         niche = c3.selectbox(
             "Nicchia",
-            options=["astrology"],
-            format_func=lambda k: {"astrology": "Zodiacale"}.get(k, k),
-            help="Per ora solo Zodiacale. Altre nicchie in arrivo (Fase 2).",
+            options=_niche_keys,
+            format_func=lambda k: _niche_labels.get(k, k),
+            help="Zodiacale è curato manualmente; per le altre l'AI inventa la "
+                 "config visuale di ogni pagina.",
         )
         tone = c4.selectbox(
             "Tono",
@@ -1635,7 +1640,11 @@ def page_library() -> None:
             else:
                 st.markdown("*(no preview)*")
         with col_d:
-            st.markdown(f"### {book.get('title', '(senza titolo)')}")
+            status = book.get("status", "complete")
+            badge = ""
+            if status == "in_progress":
+                badge = " ⏳ *(in corso o interrotto)*"
+            st.markdown(f"### {book.get('title', '(senza titolo)')}{badge}")
             cm1, cm2, cm3 = st.columns(3)
             cm1.metric("Pagine", f"{book.get('count_generated', 0)}/{book.get('count_requested', 0)}")
             cm2.metric("Costo", f"${book.get('estimated_cost_usd', 0):.2f}")
@@ -1647,6 +1656,47 @@ def page_library() -> None:
                 st.caption(f"*Brief: {book['brief']}*")
             if book.get("errors"):
                 st.caption(f"⚠️ {len(book['errors'])} errori durante la generazione")
+
+            # Marketing assets expander (if available)
+            if book.get("_marketing_path"):
+                with st.expander("📣 Marketing (Amazon listing + blurb + landing)"):
+                    try:
+                        import json as _json
+                        mk = _json.loads(Path(book["_marketing_path"]).read_text())
+                    except Exception:
+                        mk = {}
+                    if mk.get("amazon_title"):
+                        st.markdown("**Amazon — titolo:**")
+                        st.code(mk["amazon_title"])
+                    if mk.get("amazon_bullets"):
+                        st.markdown("**Amazon — 5 bullet:**")
+                        for b in mk["amazon_bullets"]:
+                            st.markdown(f"- {b}")
+                    if mk.get("amazon_description"):
+                        st.markdown("**Amazon — description:**")
+                        st.text_area("", value=mk["amazon_description"],
+                                     height=160, key=f"mk_desc_{Path(book['_book_dir']).name}",
+                                     label_visibility="collapsed")
+                    if mk.get("amazon_backend_keywords"):
+                        st.markdown("**Amazon — keyword backend (7 slot):**")
+                        st.code("\n".join(mk["amazon_backend_keywords"]))
+                    if mk.get("blurb_back_cover"):
+                        st.markdown("**Blurb retro copertina:**")
+                        st.info(mk["blurb_back_cover"])
+                    if mk.get("landing_headline"):
+                        st.markdown("**Landing page copy:**")
+                        st.markdown(f"- Headline: *{mk['landing_headline']}*")
+                        st.markdown(f"- Subhead: *{mk.get('landing_subhead', '')}*")
+                        st.markdown(f"- CTA: **{mk.get('landing_cta', '')}**")
+                    # Download raw JSON for re-use
+                    with open(book["_marketing_path"], "rb") as f:
+                        st.download_button(
+                            "📋 Scarica JSON marketing",
+                            f.read(),
+                            file_name=f"marketing_{book.get('slug', 'book')}.json",
+                            mime="application/json",
+                            key=f"mk_dl_{Path(book['_book_dir']).name}",
+                        )
 
             c_a, c_b = st.columns(2)
             # Unique key per book using full book_dir basename (resolves

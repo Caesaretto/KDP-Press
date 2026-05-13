@@ -112,31 +112,37 @@ def collect_pages(lang: str, target_illustrations: int = TARGET_ILLUSTRATIONS,
 
 
 def assemble_pdf(pages: list[Path], output_path: Path) -> None:
-    print(f"\n  Loading {len(pages)} pages…")
-    images: list[Image.Image] = []
+    """Assemble PNG pages into a multi-page PDF via img2pdf streaming.
 
+    img2pdf reads PNG bytes directly without decoding to RGB → O(1) RAM per
+    page (no OOM on 30+ page books) and no libjpeg dependency on the host
+    Python install. Pagesize forced to KDP standard 8.5×11" regardless of
+    PNG's DPI metadata.
+    """
+    import img2pdf
+
+    print(f"\n  Loading {len(pages)} pages…")
+    paths: list[Path] = []
     for i, p in enumerate(pages, 1):
         print(f"  [{i:03d}/{len(pages)}] {p.name}", flush=True)
-        img = Image.open(p).convert("RGB")
-        if img.size != (KDP_W, KDP_H):
-            img = img.resize((KDP_W, KDP_H), Image.LANCZOS)
-        images.append(img)
+        if not p.exists():
+            print(f"  ⚠ skip missing: {p}", file=sys.stderr)
+            continue
+        paths.append(p)
 
-    if not images:
+    if not paths:
         print("  ✗ No pages to assemble.", file=sys.stderr)
         sys.exit(1)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"\n  Saving PDF to {output_path}…")
-    images[0].save(
-        output_path,
-        save_all=True,
-        append_images=images[1:],
-        resolution=OUTPUT_DPI,
-        dpi=(OUTPUT_DPI, OUTPUT_DPI),
+    layout = img2pdf.get_layout_fun(
+        pagesize=(img2pdf.in_to_pt(8.5), img2pdf.in_to_pt(11))
     )
+    with open(output_path, "wb") as f:
+        f.write(img2pdf.convert([str(p) for p in paths], layout_fun=layout))
     size_mb = output_path.stat().st_size / 1e6
-    print(f"  ✓  {output_path}  ({len(images)} pages | {size_mb:.1f} MB)")
+    print(f"  ✓  {output_path}  ({len(paths)} pages | {size_mb:.1f} MB)")
 
 
 def qc_report(pages: list[Path], target: int = TARGET_PAGES) -> dict:

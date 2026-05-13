@@ -29,11 +29,14 @@ from PIL import Image
 from openai import OpenAI
 
 import quota
+from agents.marketing_agent import generate_marketing_assets
 from agents.phrase_agent import generate_phrases
+from agents.visual_config_agent import generate_visual_configs
 from generate_page import (
     BINARIZE_THR,
     KDP_H,
     KDP_W,
+    MASTER_PROMPT_TEMPLATE,
     OUTPUT_DPI,
     binarize,
     build_prompt,
@@ -76,10 +79,57 @@ def _with_retry(fn: Callable[[], _T], max_attempts: int = 4,
 _OUTPUT_BASE = Path(os.environ.get("OUTPUT_BASE", "output"))
 BOOKS_DIR    = _OUTPUT_BASE / "books"
 
+# Max books to keep on disk; older books auto-pruned after successful generation.
+# Overridable via env var BOOKS_RETENTION_MAX. 0 = unlimited (no pruning).
+BOOKS_RETENTION_MAX = int(os.environ.get("BOOKS_RETENTION_MAX", "30"))
+
 
 def _slugify(text: str, maxlen: int = 50) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
     return s[:maxlen] or "book"
+
+
+def _write_book_metadata(book_dir: Path, metadata: dict) -> None:
+    """Atomically write book.json so partial reads from list_books() can't crash."""
+    tmp = book_dir / ".book.json.tmp"
+    tmp.write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
+    tmp.replace(book_dir / "book.json")
+
+
+def _prune_old_books(keep: int = BOOKS_RETENTION_MAX) -> int:
+    """Delete oldest completed books beyond `keep` count. Returns # pruned.
+
+    Never prunes in-progress books (status != 'complete')."""
+    if keep <= 0 or not BOOKS_DIR.exists():
+        return 0
+    completed: list[tuple[Path, str]] = []
+    for d in BOOKS_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        meta = d / "book.json"
+        if not meta.exists():
+            continue
+        try:
+            data = json.loads(meta.read_text())
+            if data.get("status") == "complete":
+                completed.append((d, data.get("created_at", "")))
+        except Exception:
+            continue
+    if len(completed) <= keep:
+        return 0
+    # Sort by created_at ascending; oldest first
+    completed.sort(key=lambda x: x[1])
+    pruned = 0
+    import shutil
+    for d, _ts in completed[: len(completed) - keep]:
+        # Defense: only delete things genuinely inside BOOKS_DIR
+        try:
+            d.resolve().relative_to(BOOKS_DIR.resolve())
+            shutil.rmtree(d, ignore_errors=True)
+            pruned += 1
+        except ValueError:
+            continue
+    return pruned
 
 
 ProgressFn = Callable[[str, float], None]
@@ -127,6 +177,21 @@ def generate_book(
 
     errors: list[dict] = []
 
+    # ── Step 0: initial in_progress metadata so list_books() can show it ──────
+    _write_book_metadata(book_dir, {
+        "title": title,
+        "slug": slug,
+        "niche": niche,
+        "tone": tone,
+        "count_requested": count,
+        "count_generated": 0,
+        "lang": lang,
+        "brief": brief,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "in_progress",
+        "errors": [],
+    })
+
     # ── Step 1: phrases ───────────────────────────────────────────────────────
     emit(f"Generando {count} frasi…", 0.02)
     try:
@@ -147,6 +212,24 @@ def generate_book(
         json.dumps(phrases, ensure_ascii=False, indent=2)
     )
     emit(f"✓ Frasi generate: {len(phrases)}", 0.08)
+
+    # ── Step 1b: visual configs for non-astrology niches ──────────────────────
+    # For astrology, ZODIAC_CONFIG provides hand-tuned high-quality configs.
+    # For ANY other niche, ask the LLM to invent matching per-phrase configs.
+    visual_configs: list[dict] | None = None
+    if niche != "astrology":
+        emit("Generando configurazioni visuali…", 0.09)
+        phrase_texts = [p["text"] for p in phrases]
+        visual_configs = generate_visual_configs(
+            book_theme=title,
+            niche=niche,
+            brief=brief,
+            phrases=phrase_texts,
+            client=client,
+        )
+        (book_dir / "visual_configs.json").write_text(
+            json.dumps(visual_configs, ensure_ascii=False, indent=2)
+        )
 
     # ── Step 2: illustrations loop ────────────────────────────────────────────
     final_paths: list[Path] = []
@@ -176,10 +259,25 @@ def generate_book(
             })
             break
 
-        emit(f"Illustrazione {i + 1}/{count} ({sign}): {phrase[:48]}…", pct)
+        # Build the prompt: for astrology use the curated build_prompt(sign);
+        # for other niches use the LLM-generated visual config formatted into
+        # MASTER_PROMPT_TEMPLATE directly.
+        if niche == "astrology":
+            label = sign
+            prompt = build_prompt(sign)
+        else:
+            cfg = visual_configs[i] if visual_configs and i < len(visual_configs) else {
+                "glyph_description": "a small stylized 5-pointed star",
+                "soggetto_kawaii": phrase[:60],
+                "thematic_prop": "a small thematic prop",
+                "scatter_elements": "small stars, tiny hearts, small swirls",
+            }
+            label = niche
+            prompt = MASTER_PROMPT_TEMPLATE.format(**cfg)
+
+        emit(f"Illustrazione {i + 1}/{count} ({label}): {phrase[:48]}…", pct)
 
         try:
-            prompt = build_prompt(sign)
             api_calls_made += 1
             raw = _with_retry(lambda p=prompt: generate_image(p, client))
 
@@ -218,6 +316,24 @@ def generate_book(
     except Exception:
         pass  # Thumbnail is cosmetic, never block on it
 
+    # ── Step 3b: marketing assets (Amazon listing + blurb + landing copy) ─────
+    emit("Generando asset marketing (Amazon, blurb, landing)…", 0.93)
+    try:
+        marketing = generate_marketing_assets(
+            book_theme=title,
+            niche=niche,
+            tone=tone,
+            brief=brief,
+            phrases_sample=[p["text"] for p in phrases[:8]],
+            client=client,
+        )
+        (book_dir / "marketing.json").write_text(
+            json.dumps(marketing, ensure_ascii=False, indent=2)
+        )
+    except Exception as e:
+        emit(f"⚠️ Marketing agent fallito (libro OK comunque): {e}", 0.94)
+        marketing = {}
+
     # ── Step 4: PDF assembly (memory-safe via img2pdf) ────────────────────────
     # img2pdf streams PNG bytes direttamente nel PDF senza decodare in RAM.
     # Memoria: O(1) per pagina vs O(N) del save_all PIL → no OOM su Railway.
@@ -252,19 +368,27 @@ def generate_book(
         "lang": lang,
         "brief": brief,
         "created_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "complete",
         "pdf_path": str(pdf_path.relative_to(book_dir)) if pdf_path else None,
         "thumbnail_path": "thumbnail.png",
+        "marketing_path": "marketing.json" if (book_dir / "marketing.json").exists() else None,
         "errors": errors,
         "api_calls_image": api_calls_made,
-        "estimated_cost_usd": round(0.01 + 0.20 * api_calls_made, 2),
+        "estimated_cost_usd": round(0.03 + 0.20 * api_calls_made, 2),  # +marketing call
         "model_phrases": "gpt-4o",
         "model_images": "gpt-image-1",
     }
-    (book_dir / "book.json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2)
-    )
+    _write_book_metadata(book_dir, metadata)
 
-    emit(f"✓ Libro completato: {len(final_paths)}/{count} pagine", 1.0)
+    # Retention prune: keep only the N most recent COMPLETED books on disk.
+    try:
+        pruned = _prune_old_books()
+        if pruned:
+            emit(f"✓ Libro completato. ({pruned} libri vecchi rimossi.)", 1.0)
+        else:
+            emit(f"✓ Libro completato: {len(final_paths)}/{count} pagine", 1.0)
+    except Exception:
+        emit(f"✓ Libro completato: {len(final_paths)}/{count} pagine", 1.0)
     return book_dir
 
 
@@ -302,7 +426,6 @@ def list_books() -> list[dict]:
         meta["_thumbnail"] = str(thumb) if thumb.is_file() else None
         if meta.get("pdf_path"):
             pdf = resolved / meta["pdf_path"]
-            # Validate the PDF stays within book_dir (defense vs malicious json)
             try:
                 pdf.resolve().relative_to(resolved)
                 meta["_pdf_path"] = str(pdf) if pdf.is_file() else None
@@ -310,6 +433,9 @@ def list_books() -> list[dict]:
                 meta["_pdf_path"] = None
         else:
             meta["_pdf_path"] = None
+        # Expose marketing.json absolute path for the UI download/preview
+        marketing = resolved / "marketing.json"
+        meta["_marketing_path"] = str(marketing) if marketing.is_file() else None
         books.append(meta)
     return books
 

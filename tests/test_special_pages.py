@@ -45,6 +45,10 @@ def test_pages_save_with_correct_dpi(tmp_path):
     out = tmp_path / "page.png"
     img.save(out, dpi=(300, 300))
     with Image.open(out) as reopened:
-        # PIL exposes 'dpi' info on the loaded image
+        # PIL converts dpi via PPI (pixels per cm) round-trip, introducing
+        # floating-point error (e.g. 300 → 299.9994). Allow ±1 DPI tolerance.
         dpi = reopened.info.get("dpi")
-        assert dpi is None or dpi == (300.0, 300.0) or dpi == (300, 300), f"unexpected dpi {dpi}"
+        if dpi is not None:
+            assert abs(dpi[0] - 300) < 1.0 and abs(dpi[1] - 300) < 1.0, (
+                f"unexpected dpi {dpi}"
+            )
