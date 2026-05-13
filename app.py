@@ -522,12 +522,12 @@ def page_book_builder() -> None:
             st.caption(f"{len(pages)} pagine totali nel libro")
             to_delete = []
             cols_per_row = 5
-            rows = [pages[i:i+cols_per_row] for i in range(0, len(pages), cols_per_row)]
 
-            for row_pages in rows:
+            for row_start in range(0, len(pages), cols_per_row):
+                row_pages = pages[row_start:row_start + cols_per_row]
                 cols = st.columns(cols_per_row)
-                for i, (col, page) in enumerate(zip(cols, row_pages)):
-                    page_idx = pages.index(page)
+                for col_offset, (col, page) in enumerate(zip(cols, row_pages)):
+                    page_idx = row_start + col_offset  # posizione assoluta, sempre unica
                     with col:
                         st.markdown(f'<div class="page-thumb">', unsafe_allow_html=True)
                         thumb = _thumb(page["path"])
