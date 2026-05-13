@@ -6,6 +6,7 @@ __pycache__/
 # Environment & secrets
 .env
 .claude/settings.local.json
+.streamlit/secrets.toml
 
 # Ruflo runtime (non committare stato di sessione)
 .claude-flow/

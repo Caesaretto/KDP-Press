@@ -37,10 +37,13 @@ from landing_page_generator import generate_landing_page
 import pdf_assembler
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-OUTPUT_PAGES   = Path("output/pages")
-OUTPUT_SPECIAL = Path("output/special")
-OUTPUT_FINAL   = Path("output/final")
-PROJECT_FILE   = Path("output/current_project.json")
+# OUTPUT_BASE è override-abile via env (Railway monta volume persistente su /data/output).
+# Default "output/" per uso locale in sviluppo.
+OUTPUT_BASE    = Path(os.environ.get("OUTPUT_BASE", "output"))
+OUTPUT_PAGES   = OUTPUT_BASE / "pages"
+OUTPUT_SPECIAL = OUTPUT_BASE / "special"
+OUTPUT_FINAL   = OUTPUT_BASE / "final"
+PROJECT_FILE   = OUTPUT_BASE / "current_project.json"
 THUMB_W, THUMB_H = 120, 160
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -139,7 +142,7 @@ def _get_api_key() -> str:
 
 
 DAILY_IMAGE_CAP = int(os.environ.get("DAILY_IMAGE_CAP", "50"))
-QUOTA_FILE = Path("output/.quota.json")
+QUOTA_FILE = OUTPUT_BASE / ".quota.json"
 
 
 def _load_quota() -> dict:
@@ -702,9 +705,9 @@ COST_TABLE = {
     ("gpt-image-1", "high"):   {"1024x1024": 0.167, "1024x1536": 0.250, "1536x1024": 0.250},
 }
 
-STUDIO_PRESETS_DIR = Path("output/studio_presets")
-STUDIO_OUT_DIR     = Path("output/studio")
-COVER_OUT_DIR      = Path("output/cover")
+STUDIO_PRESETS_DIR = OUTPUT_BASE / "studio_presets"
+STUDIO_OUT_DIR     = OUTPUT_BASE / "studio"
+COVER_OUT_DIR      = OUTPUT_BASE / "cover"
 
 
 # ── Studio session-state init ─────────────────────────────────────────────────
@@ -1414,7 +1417,43 @@ def page_marketing() -> None:
 # SIDEBAR + MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _check_password() -> bool:
+    """Single-password gate. Bypassed if APP_PASSWORD env var is not set
+    (utile in dev locale). In produzione (Railway) impostare APP_PASSWORD."""
+    expected = os.environ.get("APP_PASSWORD", "").strip()
+    if not expected:
+        return True  # No password configured → open (dev mode)
+
+    if st.session_state.get("authenticated"):
+        return True
+
+    # Login screen
+    st.markdown(
+        "<div style='text-align:center; padding:3em 1em 1em 1em;'>"
+        "<h1>📚 KDP Publishing House</h1>"
+        "<p style='color:#666;'>Accesso riservato</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        with st.form("login", clear_on_submit=False):
+            pwd = st.text_input("Password", type="password",
+                                placeholder="Inserisci la password")
+            ok = st.form_submit_button("Entra", use_container_width=True)
+        if ok:
+            if pwd == expected:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Password errata. Riprova.")
+    return False
+
+
 def main() -> None:
+    if not _check_password():
+        return
+
     _init_session()
 
     with st.sidebar:

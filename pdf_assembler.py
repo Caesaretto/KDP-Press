@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -30,9 +31,10 @@ OUTPUT_DPI = 300
 TARGET_ILLUSTRATIONS = 30
 TARGET_PAGES = 3 + TARGET_ILLUSTRATIONS * 2 + 2  # 65
 
-SPECIAL_DIR = Path("output/special")
-PAGES_DIR = Path("output/pages")
-FINAL_DIR = Path("output/final")
+OUTPUT_BASE = Path(os.environ.get("OUTPUT_BASE", "output"))
+SPECIAL_DIR = OUTPUT_BASE / "special"
+PAGES_DIR = OUTPUT_BASE / "pages"
+FINAL_DIR = OUTPUT_BASE / "final"
 
 
 def _all_finals_for_sign(sign: str) -> list[Path]:

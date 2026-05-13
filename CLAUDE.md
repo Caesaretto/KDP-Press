@@ -1,4 +1,37 @@
-# Ruflo — Claude Code Configuration
+# KDP Press — Claude Code Configuration
+
+## Project Context (READ FIRST)
+
+**This is a commissioned project.** The developer (`giulioconi87`) is building this app for his **cousin** — a non-technical end user. The cousin is the only user who will operate the app.
+
+### Implications — non-negotiable
+
+- **No terminal usage by end user.** The cousin will never run commands. All workflows must be browser-driven or fully self-launching.
+- **Deploy target: cloud, not local.** The app is deployed on **Railway** with a persistent volume mounted at `/data/output`. Setup is paid by the developer.
+- **Persistence is mandatory.** Projects, illustrations, PDFs, presets, and quota state must survive restarts. Never propose Streamlit Cloud or any platform with ephemeral filesystem unless explicitly told otherwise.
+- **Authentication is enabled.** Single shared password gate via `APP_PASSWORD` env var. Only the cousin needs access. No multi-user yet.
+- **UX language: simple Italian.** All user-facing strings, errors, and labels must be in plain Italian — no English jargon, no Python stacktraces shown to the user.
+- **Deploy maintenance is the developer's job, not the cousin's.** Updates flow: code change → `git push main` → Railway auto-redeploys.
+
+### Tech stack
+
+- **Frontend/UI:** Streamlit (`app.py`)
+- **Image gen:** OpenAI API (DALL·E / gpt-image-1)
+- **PDF assembly:** `img2pdf` + Pillow (`pdf_assembler.py`)
+- **Landing page:** Netlify (`landing/`, `netlify/functions/subscribe.js`) — separate from the app
+- **Email capture:** Brevo (formerly Sendinblue), via `email_sequence.py`
+- **Hosting (app):** Railway with persistent volume at `/data/output` → `OUTPUT_BASE` env var
+
+### Required env vars on Railway
+
+| Var | Required | Purpose |
+|-----|----------|---------|
+| `OPENAI_API_KEY` | yes | AI image generation |
+| `APP_PASSWORD` | yes | Cousin's login password |
+| `OUTPUT_BASE` | yes | `/data/output` (persistent volume mount) |
+| `DAILY_IMAGE_CAP` | no | Default `50`, daily AI image quota |
+| `BREVO_API_KEY` | no | Only for Marketing tab email features |
+| `BREVO_LIST_ID` | no | Only for Marketing tab email features |
 
 ## Rules
 

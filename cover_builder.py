@@ -31,9 +31,13 @@ Cover calculator", https://kdp.amazon.com/cover-calculator):
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+# OUTPUT_BASE is overridable via env (Railway mounts persistent volume).
+COVER_DIR = Path(os.environ.get("OUTPUT_BASE", "output")) / "cover"
 
 # Re-use shared helpers from sibling modules — DO NOT duplicate
 from special_pages import _load_font  # noqa: F401  (font fallback ladder)
@@ -364,7 +368,7 @@ def _placeholder_front(w: int = 1024, h: int = 1536) -> Image.Image:
 
 
 def _selftest() -> None:
-    out = Path("output/cover")
+    out = COVER_DIR
     out.mkdir(parents=True, exist_ok=True)
     dims = compute_wrap_dimensions(page_count=65, paper="white_60lb")
     print("WRAP DIMS:")
@@ -444,17 +448,17 @@ def render_cover_ui(get_api_key_fn, check_quota_fn,
     barcode  = st.checkbox("Includi area barcode (KDP la riempie)", value=True, key="cb_bc")
 
     st.markdown("##### Generazione front (AI)")
-    use_existing = st.checkbox("Usa illustrazione esistente da output/cover/",
+    use_existing = st.checkbox("Usa illustrazione esistente",
                                value=False, key="cb_existing")
     front_path: Path | None = None
     front_prompt = ""
     if use_existing:
-        existing = sorted(Path("output/cover").glob("*.png"))
+        existing = sorted(COVER_DIR.glob("*.png"))
         if not existing:
-            st.warning("Nessuna PNG in output/cover/. Genera con la tab Advanced o disattiva il toggle.")
+            st.warning("Nessuna PNG salvata. Genera con la tab Advanced o disattiva il toggle.")
         else:
             sel = st.selectbox("File", [p.name for p in existing], key="cb_existing_sel")
-            front_path = Path("output/cover") / sel
+            front_path = COVER_DIR / sel
     else:
         front_prompt = st.text_area("Prompt front", height=180,
                                     value=COVER_PROMPT_DEFAULT, key="cb_prompt")
@@ -491,7 +495,7 @@ def render_cover_ui(get_api_key_fn, check_quota_fn,
             )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = Path("output/cover") / f"wrap_{ts}.png"
+        out = COVER_DIR / f"wrap_{ts}.png"
         out.parent.mkdir(parents=True, exist_ok=True)
         wrap.save(out, dpi=(dims["dpi"], dims["dpi"]))
 
