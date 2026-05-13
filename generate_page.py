@@ -32,7 +32,9 @@ from zodiac_config import ZODIAC_CONFIG, _ALIASES
 
 # ── KDP: 8.5" × 11" @ 300 DPI ────────────────────────────────────────────────
 KDP_W, KDP_H    = 2550, 3300
-TEXT_RATIO       = 0.30    # bottom fraction reserved for text zone
+# Bottom fraction used for outline-text band. Solo posizionamento del testo —
+# l'AI compone full-page, e outline_text fa wipe locale solo nel bbox del testo.
+TEXT_RATIO       = 0.25
 BORDER_RATIO     = 0.08    # decorative border width as fraction of image width
 BINARIZE_THR     = 160
 OUTPUT_DPI       = 300
@@ -87,10 +89,14 @@ center of the upper region. Not a tiny isolated figure. Drawn with \
 substantial detail, multiple visible features, full pose. Subject details: \
 {soggetto_kawaii}
 
-(4) LOWER ONE-THIRD OF THE PAGE IS A CLEAN EMPTY WHITE RECTANGULAR BAND — \
-NO drawings, NO text, NO decorations inside it. (The decorative border still \
-runs around it normally on its bottom and sides — the band is empty only in \
-its interior.)
+(4) FULL-PAGE COMPOSITION: the illustration extends through the ENTIRE \
+vertical canvas — both upper and lower regions are richly composed inside \
+the border. The main character is positioned in the UPPER half of the page \
+(approximate vertical center: around 35% from the top), with thematic \
+elements (props, scattered accents, ground/cloud/water features) extending \
+naturally into the lower half. The composition does NOT leave a large empty \
+white band — every region of the page (top, middle, bottom) has visible \
+decorative content within the border.
 
 (5) NO TEXT anywhere except a tiny "© 2026" placed centered just below \
 the outer border (outside the frame). No letters, numbers, words, captions, \
@@ -124,6 +130,14 @@ The cluster visually "breaks" the rectangle by crossing both frame lines.
   - RIGHT side run (vertical between top-right and bottom-right corners): \
     SAME pattern, distributed vertically along the right edge.
 All side ornaments straddle both inner and outer frame lines.
+
+═══ CHARACTER PLACEMENT ═══
+
+The main character is positioned with its vertical center at approximately \
+35% from the top of the page (i.e., upper-half placement, NOT centered \
+vertically, NOT bottom-anchored). Below the character, the composition \
+continues with cloud/ground/water/thematic elements extending naturally \
+into the lower portion of the page.
 
 ═══ MAIN CHARACTER — anatomy spec ═══
 
@@ -161,13 +175,15 @@ Each accent isolated with comfortable white-space buffer.
 
 ═══ DENSITY REQUIREMENT (this is the difference between amateur and pro) ═══
 
-The OVERALL PAGE is RICHLY DECORATED. Empty white space exists only in:
-  (a) the interior of the lower one-third caption band
-  (b) breathing room immediately around the character
-  (c) small gaps between border ornaments and between scattered accents
+The OVERALL PAGE is RICHLY DECORATED across the FULL height. Empty white \
+space exists only as:
+  (a) breathing room immediately around the character
+  (b) small gaps between border ornaments and between scattered accents
+  (c) the natural negative space inside individual shapes (to be colored)
 Everywhere else has visible black-line content. The page should look like \
 a premium Etsy/KDP coloring book page — ornate, detailed, well-composed — \
-NOT minimalist, NOT sparse, NOT a child's first coloring sheet.
+NOT minimalist, NOT sparse, NOT a child's first coloring sheet. The page \
+is fully composed top-to-bottom inside the decorative border.
 
 ═══ STRICT RULES (override anything else) ═══
 
@@ -183,7 +199,9 @@ NOT minimalist, NOT sparse, NOT a child's first coloring sheet.
    no crosshatching, no stippling, no patterned fills inside shapes.
 5. Linework is uniform medium-thick stroke throughout (like a printed \
    coloring book).
-6. The lower one-third caption band INTERIOR is empty (border still around).
+6. The page is composed top-to-bottom — no large empty caption band reserved \
+   (a separate Italian caption will be overlaid by a downstream process; you \
+   do NOT need to leave space for it).
 7. No text anywhere except the tiny "© 2026" line below the outer border.
 8. Character is 55-65% of upper region width (not smaller, not bigger).
 9. The page is densely decorated and ornate (see DENSITY REQUIREMENT above).\
@@ -253,25 +271,18 @@ def binarize(img: Image.Image, threshold: int = BINARIZE_THR) -> Image.Image:
 
 
 def enforce_white_text_zone(img: Image.Image) -> Image.Image:
-    """Wipe the INTERIOR of the lower text band to pure white WITHOUT touching
-    the decorative border on top/bottom/sides of that band.
+    """DEPRECATED no-op kept for backward-compat with old callers.
 
-    Bug pre-fix: the previous version used a gutter of just BORDER_RATIO (8%)
-    which clipped the inner ornamental line + lateral simboli of the tarot-card
-    border. We now use 1.4x BORDER_RATIO as gutter so the decorative frame on
-    every side of the text band survives.
+    Storica funzione che cancellava l'intera banda inferiore al 30% per fare
+    spazio al testo. Causava la perdita di tutto il contenuto AI (cloud,
+    amphora, bordo decorativo inferiore) quando il modello — comprensibilmente
+    — non rispettava l'istruzione di lasciare la banda vuota.
+
+    Il nuovo `outline_text()` fa un wipe LOCALE solo nel bbox effettivo del
+    testo, preservando l'illustrazione attorno. Questa funzione resta come
+    no-op così le pipeline esistenti non si rompono ma non distruggono più
+    l'immagine.
     """
-    w, h         = img.size
-    border_outer = int(w * BORDER_RATIO)
-    gutter       = int(w * BORDER_RATIO * 1.4)  # leave 40% extra so border art survives
-    zone_y_top   = int(h * (1 - TEXT_RATIO)) + int(h * 0.02)  # 2% top pad → no clip
-                                                              # of illustration tails
-    zone_y_bot   = h - gutter
-    draw = ImageDraw.Draw(img)
-    draw.rectangle(
-        [(gutter, zone_y_top), (w - gutter, zone_y_bot)],
-        fill=(255, 255, 255),
-    )
     return img
 
 
@@ -371,11 +382,27 @@ def outline_text(img: Image.Image, phrase: str) -> Image.Image:
     blk_h  = line_h * len(best_lines) + best_gap * (len(best_lines) - 1)
     y_start = zone_top + (zone_h - blk_h) // 2
 
+    # ── LOCAL WIPE ────────────────────────────────────────────────────────────
+    # Wipe SOLO il bounding-box reale del blocco testo + padding, NON l'intera
+    # banda inferiore. Così l'illustrazione AI sopravvive accanto al testo
+    # (cloud, scatter, bordo decorativo continuano a essere visibili).
+    max_lw = max(
+        draw.textbbox((0, 0), ln, font=font, stroke_width=stroke)[2]
+        for ln in best_lines
+    )
+    h_pad = stroke + int(line_h * 0.3)   # padding orizzontale attorno al testo
+    v_pad = stroke + int(line_h * 0.25)  # padding verticale
+    text_x1 = (w - max_lw) // 2 - h_pad
+    text_y1 = y_start - v_pad
+    text_x2 = (w + max_lw) // 2 + h_pad
+    text_y2 = y_start + blk_h + v_pad
+    draw.rectangle([(text_x1, text_y1), (text_x2, text_y2)], fill=(255, 255, 255))
+
+    # ── OUTLINE LETTERS ───────────────────────────────────────────────────────
     y = y_start
     for line in best_lines:
         lw = draw.textbbox((0, 0), line, font=font, stroke_width=stroke)[2]
         x  = (w - lw) // 2
-        # OUTLINE LETTERING: black contour + white interior → colorable
         draw.text(
             (x, y), line, font=font,
             fill=(255, 255, 255),
